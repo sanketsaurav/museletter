@@ -25,7 +25,7 @@ jobs:
           [ "v$pyproject" = "$GITHUB_REF_NAME" ] && [ "$initpy" = "$pyproject" ]
 
       - name: Run tests
-        run: uv venv && uv pip install -e ".[dev]" && .venv/bin/pytest -q
+        run: uv pip install -e ".[dev]" && .venv/bin/pytest -q
 
       - name: Build sdist and wheel
         run: uv build
