@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # PyPI trusted publishing (OIDC) — no API token needed
+      contents: write # create the GitHub release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Verify tag matches project version
+        run: |
+          pyproject=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          initpy=$(grep -m1 '__version__' src/museletter/__init__.py | cut -d'"' -f2)
+          echo "tag=$GITHUB_REF_NAME pyproject=$pyproject __init__=$initpy"
+          [ "v$pyproject" = "$GITHUB_REF_NAME" ] && [ "$initpy" = "$pyproject" ]
+
+      - name: Run tests
+        run: uv venv && uv pip install -e ".[dev]" && .venv/bin/pytest -q
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes dist/*
