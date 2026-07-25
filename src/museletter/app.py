@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
@@ -6,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .api.public import RateLimiter
 from .config import Settings
 from .db import ensure_default_list, ensure_secret, open_db, utcnow
 from .sender import SenderLoop
@@ -24,6 +26,7 @@ async def lifespan(app: FastAPI):
         settings.aws_region, settings.ses_configuration_set
     )
     app.state.sns_verifier = settings.extra.get("sns_verifier") or SNSVerifier()
+    app.state.rate_limiter = RateLimiter()
     app.state.sender = SenderLoop(app)
     sender_task = None
     if not settings.extra.get("disable_sender"):
@@ -38,12 +41,23 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
+def _has_valid_api_key(request: Request) -> bool:
+    settings = request.app.state.settings
+    auth = request.headers.get("authorization", "")
+    token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
+    return bool(settings.api_key) and hmac.compare_digest(token, settings.api_key)
+
+
 async def idempotency_middleware(request: Request, call_next):
     key = request.headers.get("Idempotency-Key", "")
+    # Only authenticated mutations are idempotency-tracked. Gating on the API key
+    # keeps the replay branch from serving cached bodies (or caching 401s) to
+    # unauthenticated callers — the route's own require_api_key still runs below.
     if (
         not key
         or request.method not in ("POST", "PATCH", "DELETE")
         or not request.url.path.startswith("/v1/")
+        or not _has_valid_api_key(request)
     ):
         return await call_next(request)
 
@@ -63,7 +77,10 @@ async def idempotency_middleware(request: Request, call_next):
 
     response = await call_next(request)
     body = b"".join([chunk async for chunk in response.body_iterator])
-    if response.status_code < 500:
+    # Cache only successful results. Caching a 4xx guardrail failure (e.g. 412
+    # "no test send yet") under the CLI's fixed send-<id> key would replay it
+    # forever and make the campaign permanently unsendable.
+    if response.status_code < 300:
         await db.execute(
             "INSERT OR IGNORE INTO idempotency (key, path, status_code, response_body, created_at) "
             "VALUES (?, ?, ?, ?, ?)",

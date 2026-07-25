@@ -12,7 +12,7 @@ import logging
 import httpx
 
 from .db import utcnow
-from .render import build_email
+from .render import personalize_email, render_campaign
 from .ses import SESError
 from .tokens import make_token
 
@@ -79,19 +79,33 @@ class SenderLoop:
         settings = self.app.state.settings
         secret = self.app.state.secret
         delay = 1.0 / max(settings.send_rate, 0.1)
+        # Render the Markdown once for the whole campaign; only per-recipient
+        # personalization (cheap token substitution) runs inside the loop.
+        body = render_campaign(campaign["subject"], campaign["body_markdown"])
 
         for recipient in batch:
             if self._stopped:
                 return True
-            async with db.execute("SELECT 1 FROM suppressions WHERE email = ?", (recipient["email"],)) as cur:
-                if await cur.fetchone():
-                    await self._mark(recipient, "suppressed", error="suppressed before send")
-                    continue
+            # The batch is an in-memory snapshot; re-read the row and subscriber
+            # fresh so a suppression, unsubscribe, or opt-out that landed after
+            # the fetch is honored before we hit SES.
+            async with db.execute(
+                "SELECT cr.status AS row_status, s.status AS sub_status, "
+                "(SELECT 1 FROM suppressions sup WHERE sup.email = cr.email) AS suppressed "
+                "FROM campaign_recipients cr JOIN subscribers s ON s.id = cr.subscriber_id "
+                "WHERE cr.campaign_id = ? AND cr.subscriber_id = ?",
+                (recipient["campaign_id"], recipient["subscriber_id"]),
+            ) as cur:
+                current = await cur.fetchone()
+            if current is None or current["row_status"] != "pending":
+                continue  # deleted or already resolved by a concurrent writer
+            if current["suppressed"] or current["sub_status"] != "active":
+                await self._mark(recipient, "suppressed", error="suppressed before send")
+                continue
 
             unsubscribe_url = f"{settings.base_url}/unsubscribe/{make_token(secret, 'unsubscribe', recipient['subscriber_id'])}"
-            subject, html, text = build_email(
-                campaign["subject"],
-                campaign["body_markdown"],
+            subject, html, text = personalize_email(
+                body,
                 name=recipient["name"],
                 email=recipient["email"],
                 unsubscribe_url=unsubscribe_url,
@@ -141,7 +155,9 @@ class SenderLoop:
                 await asyncio.sleep(1)
                 continue
 
-            await self._mark(recipient, "sent", message_id=message_id)
+            # Guard on status = 'pending': if an unsubscribe flipped this row to
+            # 'suppressed' during the SES call, don't overwrite that with 'sent'.
+            await self._mark(recipient, "sent", message_id=message_id, only_pending=True)
             await asyncio.sleep(delay)
         return True
 
@@ -152,11 +168,14 @@ class SenderLoop:
         else:
             logger.warning("send to %s failed (attempt %d): %s", recipient["email"], attempts, error)
 
-    async def _mark(self, recipient, status: str, message_id: str = "", error: str = "") -> None:
+    async def _mark(
+        self, recipient, status: str, message_id: str = "", error: str = "", only_pending: bool = False
+    ) -> None:
         db = self.app.state.db
+        guard = " AND status = 'pending'" if only_pending else ""
         await db.execute(
             "UPDATE campaign_recipients SET status = ?, ses_message_id = ?, error = ?, updated_at = ? "
-            "WHERE campaign_id = ? AND subscriber_id = ?",
+            f"WHERE campaign_id = ? AND subscriber_id = ?{guard}",
             (
                 status,
                 message_id or None,

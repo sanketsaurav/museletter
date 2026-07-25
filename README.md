@@ -105,6 +105,8 @@ Unsubscribes are one-click (RFC 8058) and immediate — even mid-campaign.
 | `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
 | `MUSELETTER_SEND_RATE` | no | emails/sec, default 10 — keep under your SES rate |
 | `MUSELETTER_SES_CONFIGURATION_SET` | no | configuration set for event feedback |
+| `MUSELETTER_SNS_TOPIC_ARN` | no† | your SNS topic ARN; when set, the webhook rejects events from any other topic (†strongly recommended) |
+| `MUSELETTER_TRUST_PROXY` | no | set to `true` when behind a proxy (Fly/Railway/Cloudflare) so rate limiting uses `X-Forwarded-For`, not the proxy IP |
 | `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
 

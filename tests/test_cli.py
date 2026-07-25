@@ -74,6 +74,22 @@ def test_subs_add_posts_body(api):
     assert body == {"email": "a@x.com", "name": "Ada", "tags": ["vip"]}
 
 
+def test_subs_resolve_percent_encodes_plus_addressed_email(api):
+    # A '+' in the email must reach the server as %2B, not a literal '+'
+    # (which Starlette decodes to a space), or the lookup silently misses.
+    captured = {}
+
+    def route(request: httpx.Request) -> httpx.Response:
+        captured["query"] = request.url.query.decode()
+        return httpx.Response(200, json={"subscribers": [{"id": "sub_9", "email": "user+tag@x.com"}]})
+
+    api[("GET", "/v1/lists/default/subscribers")] = route
+    api[("DELETE", "/v1/subscribers/sub_9")] = {}
+    result = runner.invoke(cli_app, ["subs", "rm", "user+tag@x.com"])
+    assert result.exit_code == 0
+    assert "q=user%2Btag%40x.com" in captured["query"]
+
+
 def test_subs_list_and_export(api):
     api[("GET", "/v1/lists/default/subscribers")] = {
         "subscribers": [{"id": "sub_1", "email": "a@x.com", "name": "", "status": "active", "tags": []}],

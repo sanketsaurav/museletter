@@ -1,6 +1,9 @@
+import hashlib
+import hmac
 import json
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -49,6 +52,34 @@ def test_sign_request_shape_and_determinism(frozen_clock):
     signature = auth.rsplit("Signature=", 1)[1]
     assert len(signature) == 64 and int(signature, 16) is not None
     assert _sign() == headers, "same inputs must produce the same signature"
+
+
+def _reference_signature(path: str, *, encode_path: bool) -> str:
+    """Independent SigV4 signer, to check sign_request encodes the canonical URI."""
+    amz_date, datestamp = "20150830T123600Z", "20150830"
+    host = "email.us-east-1.amazonaws.com"
+    canonical_uri = quote(path, safe="/-._~") if encode_path else path
+    canonical_headers = f"host:{host}\nx-amz-date:{amz_date}\n"
+    payload_hash = hashlib.sha256(b'{"a":1}').hexdigest()
+    canonical_request = "\n".join(
+        ["POST", canonical_uri, "", canonical_headers, "host;x-amz-date", payload_hash]
+    )
+    scope = f"{datestamp}/us-east-1/ses/aws4_request"
+    string_to_sign = "\n".join(
+        ["AWS4-HMAC-SHA256", amz_date, scope, hashlib.sha256(canonical_request.encode()).hexdigest()]
+    )
+    key = derive_signing_key(CREDS["secret"], datestamp, "us-east-1", "ses")
+    return hmac.new(key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+
+def test_sign_request_percent_encodes_path(frozen_clock):
+    # An '@' in an email-identity path must be signed as %40 to match AWS's
+    # canonical URI, or SES returns SignatureDoesNotMatch.
+    path = "/v2/email/identities/user@example.com"
+    produced = _sign(url=f"https://email.us-east-1.amazonaws.com{path}")["authorization"]
+    signature = produced.rsplit("Signature=", 1)[1]
+    assert signature == _reference_signature(path, encode_path=True)
+    assert signature != _reference_signature(path, encode_path=False), "raw-path signing is the bug"
 
 
 def test_sign_request_includes_session_token(frozen_clock):

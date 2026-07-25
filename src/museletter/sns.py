@@ -38,12 +38,7 @@ class SNSVerifier:
         self._cert_cache: dict[str, bytes] = {}
 
     async def _fetch_cert(self, url: str) -> bytes | None:
-        parsed = urlparse(url)
-        if (
-            parsed.scheme != "https"
-            or not _CERT_HOST_RE.match(parsed.netloc)
-            or not parsed.path.endswith(".pem")
-        ):
+        if not is_amazon_sns_url(url) or not urlparse(url).path.endswith(".pem"):
             return None
         if url not in self._cert_cache:
             if self._http is None:

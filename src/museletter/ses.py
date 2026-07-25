@@ -10,7 +10,7 @@ import hmac
 import json
 import os
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -59,8 +59,12 @@ def sign_request(
     signed_headers = ";".join(sorted(headers))
     canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
     payload_hash = hashlib.sha256(payload).hexdigest()
+    # AWS builds the canonical URI from the percent-encoded path, so an
+    # unencoded reserved char (e.g. '@' in an email-address identity) would
+    # otherwise yield SignatureDoesNotMatch. quote keeps unreserved chars and '/'.
+    canonical_uri = quote(parsed.path or "/", safe="/-._~")
     canonical_request = "\n".join(
-        [method, parsed.path or "/", parsed.query, canonical_headers, signed_headers, payload_hash]
+        [method, canonical_uri, parsed.query, canonical_headers, signed_headers, payload_hash]
     )
 
     scope = f"{datestamp}/{region}/{service}/aws4_request"

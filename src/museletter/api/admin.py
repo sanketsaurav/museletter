@@ -149,6 +149,13 @@ async def delete_list(request: Request, ref: str):
     async with db.execute("SELECT COUNT(*) AS n FROM lists") as cur:
         if (await cur.fetchone())["n"] <= 1:
             raise HTTPException(status_code=409, detail="cannot delete the only list")
+    async with db.execute(
+        "SELECT 1 FROM campaigns WHERE list_id = ? AND status = 'sending' LIMIT 1", (lst["id"],)
+    ) as cur:
+        if await cur.fetchone():
+            raise HTTPException(
+                status_code=409, detail="a campaign on this list is currently sending; cannot delete"
+            )
     await db.execute("DELETE FROM lists WHERE id = ?", (lst["id"],))
     await db.commit()
     return Response(status_code=204)
@@ -267,6 +274,14 @@ async def update_subscriber(request: Request, subscriber_id: str, body: Subscrib
     await db.execute(
         "UPDATE subscribers SET name = ?, status = ? WHERE id = ?", (name, status, subscriber_id)
     )
+    # Opting a subscriber out here must stop any in-flight campaign from
+    # reaching them, exactly as the public unsubscribe path does.
+    if status != "active" and row["status"] == "active":
+        await db.execute(
+            "UPDATE campaign_recipients SET status = 'suppressed', updated_at = ? "
+            "WHERE subscriber_id = ? AND status = 'pending'",
+            (utcnow(), subscriber_id),
+        )
     await db.commit()
     return subscriber_json(
         await get_subscriber(db, subscriber_id), await subscriber_tag_names(db, subscriber_id)

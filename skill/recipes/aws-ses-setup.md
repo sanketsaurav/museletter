@@ -28,7 +28,11 @@ account that will send. Substitute the user's domain and server URL throughout.
      --notification-endpoint https://<museletter-server>/webhooks/sns
    ```
    museletter confirms the SNS subscription automatically. Then set
-   `MUSELETTER_SES_CONFIGURATION_SET=museletter` on the server and restart it.
+   `MUSELETTER_SES_CONFIGURATION_SET=museletter` and
+   `MUSELETTER_SNS_TOPIC_ARN=<TopicArn>` on the server and restart it. Setting
+   the topic ARN is important: without it the webhook trusts any validly-signed
+   SNS message, so an attacker could forge bounce events from their own topic
+   and suppress your subscribers.
 
 4. **Request production access** (new SES accounts are sandboxed to verified
    addresses, 200 emails/day). This is a support form in the SES console —

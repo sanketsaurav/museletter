@@ -2,6 +2,7 @@ import html as html_mod
 import json
 import time
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -33,6 +34,17 @@ class RateLimiter:
         if len(self.hits) > 10_000:
             self.hits = {k: v for k, v in self.hits.items() if v and now - v[-1] < self.window}
         return True
+
+
+def client_ip(request: Request) -> str:
+    """The requester's IP. Behind a proxy (Fly/Railway/Cloudflare) the socket
+    peer is the proxy, so all visitors share one bucket unless we read the
+    forwarded header — only trusted when the operator opts in via trust_proxy."""
+    if request.app.state.settings.trust_proxy:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 _PAGE_TEMPLATE = load_template("page.html")
@@ -67,10 +79,7 @@ async def subscribe(request: Request, slug: str):
     db = request.app.state.db
     settings = request.app.state.settings
 
-    if not hasattr(request.app.state, "rate_limiter"):
-        request.app.state.rate_limiter = RateLimiter()
-    client_ip = request.client.host if request.client else "unknown"
-    if not request.app.state.rate_limiter.allow(client_ip):
+    if not request.app.state.rate_limiter.allow(client_ip(request)):
         raise HTTPException(status_code=429, detail="too many requests; try again in a minute")
 
     content_type = request.headers.get("content-type", "")
@@ -161,13 +170,24 @@ async def confirm(request: Request, token: str):
         row = await cur.fetchone()
     if row is None:
         return _page("Invalid link", "<p>This confirmation link is not valid.</p>")
-    if row["status"] != "active":
+    list_name = html_mod.escape(row["list_name"])
+    # Only a pending double-opt-in may be confirmed. A confirm link is a GET —
+    # link scanners and prefetchers follow it — so it must never resurrect a
+    # subscriber who has since unsubscribed, bounced, or complained.
+    if row["status"] == "unconfirmed":
         await db.execute(
-            "UPDATE subscribers SET status = 'active', confirmed_at = ?, unsubscribed_at = NULL WHERE id = ?",
+            "UPDATE subscribers SET status = 'active', confirmed_at = ? WHERE id = ?",
             (utcnow(), subscriber_id),
         )
         await db.commit()
-    return _page("Subscribed", f"<p>You're subscribed to {html_mod.escape(row['list_name'])}. Welcome!</p>")
+        return _page("Subscribed", f"<p>You're subscribed to {list_name}. Welcome!</p>")
+    if row["status"] == "active":
+        return _page("Subscribed", f"<p>You're already subscribed to {list_name}.</p>")
+    return _page(
+        "Subscription closed",
+        f"<p>This address is not subscribed to {list_name}. "
+        f"If that's a mistake, sign up again from the website.</p>",
+    )
 
 
 @router.get("/unsubscribe/{token}")
@@ -217,6 +237,12 @@ async def sns_webhook(request: Request):
     if not isinstance(envelope, dict):
         raise HTTPException(status_code=400, detail="invalid SNS message")
 
+    # A valid SNS signature only proves the message came from *some* AWS SNS
+    # topic. Pin it to our own topic so an attacker can't sign a fake bounce
+    # from a topic in their own account and suppress our subscribers.
+    if settings.sns_topic_arn and envelope.get("TopicArn") != settings.sns_topic_arn:
+        raise HTTPException(status_code=403, detail="unexpected SNS topic")
+
     if not settings.extra.get("skip_sns_verify"):
         if not await request.app.state.sns_verifier.verify(envelope):
             raise HTTPException(status_code=403, detail="SNS signature verification failed")
@@ -227,8 +253,6 @@ async def sns_webhook(request: Request):
         subscribe_url = envelope.get("SubscribeURL", "")
         if not is_amazon_sns_url(subscribe_url):
             raise HTTPException(status_code=400, detail="invalid SubscribeURL")
-        import httpx
-
         async with httpx.AsyncClient(timeout=10) as client:
             await client.get(subscribe_url)
         return {"ok": True, "confirmed": True}

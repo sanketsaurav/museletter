@@ -22,7 +22,9 @@ def verify_token(secret: str, token: str, purpose: str) -> str | None:
     except (ValueError, TypeError):
         return None
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()[:32]
-    if not hmac.compare_digest(sig, expected):
+    # compare_digest raises TypeError on a non-ASCII signature; a malformed
+    # token from a link scanner must return None, not 500 the public endpoint.
+    if not sig.isascii() or not hmac.compare_digest(sig, expected):
         return None
     try:
         token_purpose, subscriber_id = payload.decode().split(":", 1)

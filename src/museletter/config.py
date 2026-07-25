@@ -14,6 +14,8 @@ class Settings:
     send_rate: float = 10.0  # emails per second, must stay under the SES account rate
     aws_region: str = "us-east-1"
     ses_configuration_set: str = ""
+    sns_topic_arn: str = ""  # if set, only SNS events from this topic are accepted
+    trust_proxy: bool = False  # read X-Forwarded-For for the client IP (set behind a proxy)
     secret: str = ""  # HMAC key for public links; auto-generated into the DB if empty
     extra: dict = field(default_factory=dict)
 
@@ -31,6 +33,8 @@ class Settings:
             send_rate=float(env.get("MUSELETTER_SEND_RATE", "10")),
             aws_region=env.get("AWS_REGION", env.get("AWS_DEFAULT_REGION", "us-east-1")),
             ses_configuration_set=env.get("MUSELETTER_SES_CONFIGURATION_SET", ""),
+            sns_topic_arn=env.get("MUSELETTER_SNS_TOPIC_ARN", ""),
+            trust_proxy=env.get("MUSELETTER_TRUST_PROXY", "").lower() in ("1", "true", "yes"),
             secret=env.get("MUSELETTER_SECRET", ""),
         )
 

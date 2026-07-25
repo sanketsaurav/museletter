@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 import typer
@@ -180,7 +181,7 @@ def lists_rm(ref: str, yes: bool = typer.Option(False, "--yes", "-y")):
 def _resolve_subscriber(list_ref: str, ref: str) -> str:
     if ref.startswith("sub_"):
         return ref
-    data = _call("GET", f"/v1/lists/{list_ref}/subscribers?q={ref}&limit=5")
+    data = _call("GET", f"/v1/lists/{list_ref}/subscribers?q={quote(ref, safe='')}&limit=5")
     matches = [s for s in data["subscribers"] if s["email"] == ref.lower().strip()]
     if not matches:
         typer.echo(f"no subscriber found for '{ref}' in list '{list_ref}'", err=True)
@@ -216,7 +217,7 @@ def subs_list(
         params["tag"] = tag
     if q:
         params["q"] = q
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    query = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in params.items())
     data = _call("GET", f"/v1/lists/{list_ref}/subscribers?{query}")
     rows = [{**s, "tags": ",".join(s["tags"])} for s in data["subscribers"]]
     human = _table(rows, ["id", "email", "name", "status", "tags"]) + f"\n({data['total']} total)"

@@ -2,6 +2,7 @@ import html as html_mod
 import re
 from importlib.resources import files
 from string import Template
+from typing import NamedTuple
 
 import html2text
 import mistune
@@ -47,9 +48,22 @@ def markdown_to_text(markdown: str) -> str:
     return converter.handle(markdown_to_html(markdown)).strip()
 
 
-def build_email(
-    subject: str,
-    markdown: str,
+class CampaignBody(NamedTuple):
+    """Markdown rendered once per campaign. Personalization tokens ({{name}})
+    survive rendering as literal text and are substituted per recipient, so the
+    Markdown parser runs once per campaign instead of once per recipient."""
+
+    subject: str
+    base_html: str
+    base_text: str
+
+
+def render_campaign(subject: str, markdown: str) -> CampaignBody:
+    return CampaignBody(subject, markdown_to_html(markdown), markdown_to_text(markdown))
+
+
+def personalize_email(
+    body: CampaignBody,
     *,
     name: str = "",
     email: str = "",
@@ -57,10 +71,10 @@ def build_email(
     list_name: str = "",
     postal_address: str = "",
 ) -> tuple[str, str, str]:
-    """Render a campaign for one recipient. Returns (subject, html, text)."""
-    subject = personalize(subject, name, email)
-    content_html = personalize(markdown_to_html(markdown), name, email, escape=True)
-    content_text = personalize(markdown_to_text(markdown), name, email)
+    """Personalize a pre-rendered campaign for one recipient. Returns (subject, html, text)."""
+    subject = personalize(body.subject, name, email)
+    content_html = personalize(body.base_html, name, email, escape=True)
+    content_text = personalize(body.base_text, name, email)
 
     footer_parts = []
     if list_name:
@@ -87,3 +101,26 @@ def build_email(
     text = content_text + "\n\n" + "\n".join(text_footer) + "\n"
 
     return subject, html, text
+
+
+def build_email(
+    subject: str,
+    markdown: str,
+    *,
+    name: str = "",
+    email: str = "",
+    unsubscribe_url: str = "",
+    list_name: str = "",
+    postal_address: str = "",
+) -> tuple[str, str, str]:
+    """Render and personalize a campaign for a single recipient. Convenience
+    wrapper for one-off sends (confirmation, test, preview); the bulk send loop
+    calls render_campaign() once and personalize_email() per recipient."""
+    return personalize_email(
+        render_campaign(subject, markdown),
+        name=name,
+        email=email,
+        unsubscribe_url=unsubscribe_url,
+        list_name=list_name,
+        postal_address=postal_address,
+    )

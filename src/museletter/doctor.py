@@ -24,9 +24,10 @@ async def _resolve_txt(name: str) -> list[str]:
 async def run_checks(settings: Settings, ses: SESClient, db) -> dict:
     checks: list[dict] = []
 
-    for problem in settings.missing_required():
+    problems = settings.missing_required()
+    for problem in problems:
         checks.append(_check("config", "fail", problem))
-    if not settings.missing_required():
+    if not problems:
         checks.append(_check("config", "ok", "required configuration present"))
     if not settings.postal_address:
         checks.append(
@@ -38,6 +39,15 @@ async def run_checks(settings: Settings, ses: SESClient, db) -> dict:
         )
     if settings.base_url.startswith("http://"):
         checks.append(_check("base-url", "warn", "MUSELETTER_BASE_URL is not https"))
+    if not settings.sns_topic_arn:
+        checks.append(
+            _check(
+                "sns-topic",
+                "warn",
+                "MUSELETTER_SNS_TOPIC_ARN is empty; the webhook accepts SES events from any "
+                "SNS topic. Set it to your topic ARN so forged events are rejected.",
+            )
+        )
 
     if not SESClient.has_credentials():
         checks.append(
