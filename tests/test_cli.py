@@ -5,9 +5,20 @@ import pytest
 from typer.testing import CliRunner
 
 import museletter.cli as cli_mod
+from museletter import clientconf
 from museletter.cli import app as cli_app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolate_config(monkeypatch, tmp_path):
+    """Point client config at a temp file and clear env overrides for every test."""
+    monkeypatch.setattr(clientconf, "CONFIG_PATH", tmp_path / "config.toml")
+    for var in ("MUSELETTER_URL", "MUSELETTER_API_KEY", "MUSELETTER_PROFILE"):
+        monkeypatch.delenv(var, raising=False)
+    # Default: a saved profile so command tests resolve a server.
+    clientconf.save_profile("default", "http://t.local", "testkey")
 
 
 @pytest.fixture
@@ -34,19 +45,10 @@ def api(monkeypatch):
 
 
 def test_unconfigured_cli_exits_with_guidance(monkeypatch, tmp_path):
-    monkeypatch.delenv("MUSELETTER_URL", raising=False)
-    monkeypatch.setattr(cli_mod, "CONFIG_PATH", tmp_path / "missing.toml")
+    monkeypatch.setattr(clientconf, "CONFIG_PATH", tmp_path / "missing.toml")
     result = runner.invoke(cli_app, ["health"])
     assert result.exit_code == 1
     assert "no server configured" in result.output
-
-
-def test_config_writes_file(monkeypatch, tmp_path):
-    config_path = tmp_path / "config.toml"
-    monkeypatch.setattr(cli_mod, "CONFIG_PATH", config_path)
-    result = runner.invoke(cli_app, ["config", "--url", "http://x.local", "--api-key", "k123"])
-    assert result.exit_code == 0
-    assert cli_mod._load_file_config() == {"url": "http://x.local", "api_key": "k123"}
 
 
 def test_lists_table_and_json(api):
@@ -241,3 +243,124 @@ def test_serve_refuses_missing_config(monkeypatch):
     result = runner.invoke(cli_app, ["serve"])
     assert result.exit_code == 1
     assert "MUSELETTER_API_KEY" in result.output
+
+
+# ---------- connect / status / print-token ----------
+
+
+def _mock_server(monkeypatch, handler):
+    """Force the connect/status ad-hoc httpx clients onto a MockTransport."""
+    transport = httpx.MockTransport(handler)
+    real = httpx.Client  # capture before patching to avoid recursing into the factory
+
+    def factory(*, base_url="", **_):
+        return real(base_url=base_url, transport=transport)
+
+    monkeypatch.setattr(cli_mod.httpx, "Client", factory)
+
+
+def test_connect_with_token_saves_profile(monkeypatch):
+    def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(200, json={"lists": []})
+
+    _mock_server(monkeypatch, handler)
+    token = clientconf.encode_token("https://news.example.com", "the-key")
+    result = runner.invoke(cli_app, ["connect", token])
+    assert result.exit_code == 0, result.output
+    url, key, _ = clientconf.resolve()
+    assert url == "https://news.example.com" and key == "the-key"
+
+
+def test_connect_rejects_bad_key(monkeypatch):
+    def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(401, json={"detail": "invalid or missing API key"})
+
+    _mock_server(monkeypatch, handler)
+    result = runner.invoke(cli_app, ["connect", "--url", "https://x.example.com", "--api-key", "wrong"])
+    assert result.exit_code == 1
+    assert "API key was rejected" in result.output
+
+
+def test_connect_rejects_malformed_token():
+    result = runner.invoke(cli_app, ["connect", "ml_not-valid"])
+    assert result.exit_code == 1
+
+
+def test_status_reports_reachable_and_authed(monkeypatch):
+    clientconf.save_profile("default", "https://news.example.com", "k")
+
+    def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"ok": True})
+        return httpx.Response(200, json={"lists": [{"active_subscribers": 5}, {"active_subscribers": 3}]})
+
+    _mock_server(monkeypatch, handler)
+    result = runner.invoke(cli_app, ["--json", "status"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["reachable"] and data["authenticated"]
+    assert data["active_subscribers"] == 8
+
+
+def test_print_token_roundtrips(monkeypatch):
+    monkeypatch.setenv("MUSELETTER_BASE_URL", "https://news.example.com")
+    monkeypatch.setenv("MUSELETTER_API_KEY", "abc123")
+    result = runner.invoke(cli_app, ["print-token"])
+    assert result.exit_code == 0
+    url, key = clientconf.decode_token(result.output.strip())
+    assert url == "https://news.example.com" and key == "abc123"
+
+
+# ---------- skill install ----------
+
+
+def test_skill_install_copies_files(tmp_path):
+    result = runner.invoke(cli_app, ["skill", "install", "--dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    installed = tmp_path / "museletter"
+    assert (installed / "SKILL.md").exists()
+    assert (installed / "recipes" / "publish-new-issue.md").exists()
+
+    # Refuses to clobber without --force, succeeds with it.
+    assert runner.invoke(cli_app, ["skill", "install", "--dir", str(tmp_path)]).exit_code == 1
+    assert runner.invoke(cli_app, ["skill", "install", "--dir", str(tmp_path), "--force"]).exit_code == 0
+
+
+# ---------- init ----------
+
+
+def test_init_non_interactive_writes_env_and_token(tmp_path):
+    env_file = tmp_path / ".env"
+    result = runner.invoke(
+        cli_app,
+        [
+            "--json",
+            "init",
+            "--non-interactive",
+            "--base-url",
+            "https://news.example.com",
+            "--from-email",
+            "you@example.com",
+            "--env-file",
+            str(env_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["env"]["MUSELETTER_BASE_URL"] == "https://news.example.com"
+    assert len(data["env"]["MUSELETTER_API_KEY"]) >= 32
+    url, key = clientconf.decode_token(data["connect_token"])
+    assert url == "https://news.example.com" and key == data["env"]["MUSELETTER_API_KEY"]
+    # --json must still write the env file (side effect), not just print JSON.
+    assert env_file.read_text().count("MUSELETTER_API_KEY=") == 1
+    assert data["env_file"] == str(env_file)
+
+
+def test_init_requires_base_url_and_email():
+    result = runner.invoke(cli_app, ["init", "--non-interactive", "--base-url", "https://x.example.com"])
+    assert result.exit_code == 1
+    assert "required" in result.output

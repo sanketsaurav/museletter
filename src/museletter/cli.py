@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -7,52 +6,47 @@ from urllib.parse import quote
 import httpx
 import typer
 
+from . import clientconf
+
 app = typer.Typer(help="museletter — a headless, agent-first newsletter platform", no_args_is_help=True)
 lists_app = typer.Typer(help="Manage lists", no_args_is_help=True)
 subs_app = typer.Typer(help="Manage subscribers", no_args_is_help=True)
 tags_app = typer.Typer(help="Manage tags", no_args_is_help=True)
 campaigns_app = typer.Typer(help="Manage campaigns", no_args_is_help=True)
 suppressions_app = typer.Typer(help="Manage the suppression list", no_args_is_help=True)
+skill_app = typer.Typer(help="Install the museletter agent skill", no_args_is_help=True)
+service_app = typer.Typer(help="Run museletter as a background service", no_args_is_help=True)
 app.add_typer(lists_app, name="lists")
 app.add_typer(subs_app, name="subs")
 app.add_typer(tags_app, name="tags")
 app.add_typer(campaigns_app, name="campaigns")
 app.add_typer(suppressions_app, name="suppressions")
+app.add_typer(skill_app, name="skill")
+app.add_typer(service_app, name="service")
 
-STATE = {"json": False}
-CONFIG_PATH = Path.home() / ".config" / "museletter" / "config.toml"
-
-
-def _load_file_config() -> dict:
-    if not CONFIG_PATH.exists():
-        return {}
-    import tomllib
-
-    try:
-        return tomllib.loads(CONFIG_PATH.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+STATE: dict = {"json": False, "profile": None}
 
 
 @app.callback()
 def _global(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON responses"),
+    profile: str = typer.Option(None, "--profile", "-p", help="Server profile to use"),
 ):
     STATE["json"] = json_output
+    STATE["profile"] = profile
+
+
+def _resolve():
+    try:
+        return clientconf.resolve(STATE["profile"])
+    except clientconf.ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
 
 def _client() -> httpx.Client:
-    file_config = _load_file_config()
-    url = os.environ.get("MUSELETTER_URL") or file_config.get("url", "")
-    api_key = os.environ.get("MUSELETTER_API_KEY") or file_config.get("api_key", "")
-    if not url:
-        typer.echo(
-            "no server configured: set MUSELETTER_URL and MUSELETTER_API_KEY, "
-            "or run `museletter config --url ... --api-key ...`",
-            err=True,
-        )
-        raise typer.Exit(1)
-    return httpx.Client(base_url=url.rstrip("/"), headers={"Authorization": f"Bearer {api_key}"}, timeout=120)
+    url, api_key, _ = _resolve()
+    return httpx.Client(base_url=url, headers={"Authorization": f"Bearer {api_key}"}, timeout=120)
 
 
 def _request(method: str, path: str, body: dict | None = None, headers: dict | None = None) -> httpx.Response:
@@ -90,15 +84,89 @@ def _table(rows: list[dict], columns: list[str]) -> str:
 
 
 @app.command()
-def config(
-    url: str = typer.Option(..., help="museletter server URL"),
-    api_key: str = typer.Option(..., help="admin API key"),
+def connect(
+    token: str = typer.Argument(None, help="connect token (ml_...) from `museletter print-token`"),
+    url: str = typer.Option(None, help="server URL (instead of a token)"),
+    api_key: str = typer.Option(None, help="admin API key (with --url)"),
+    name: str = typer.Option("default", "--name", help="profile name to save under"),
 ):
-    """Save server URL and API key to ~/.config/museletter/config.toml."""
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(f'url = "{url}"\napi_key = "{api_key}"\n')
-    CONFIG_PATH.chmod(0o600)
-    typer.echo(f"saved to {CONFIG_PATH}")
+    """Connect this machine to a museletter server and save it as a profile."""
+    if token:
+        try:
+            url, api_key = clientconf.decode_token(token)
+        except clientconf.ConfigError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+    elif not url or not api_key:
+        typer.echo("provide a connect token, or both --url and --api-key", err=True)
+        raise typer.Exit(1)
+
+    # Verify reachability and auth before saving, so a bad token fails loudly here.
+    try:
+        with httpx.Client(base_url=url.rstrip("/"), timeout=15) as client:
+            health = client.get("/health")
+            health.raise_for_status()
+            authed = client.get("/v1/lists", headers={"Authorization": f"Bearer {api_key}"})
+    except httpx.HTTPError as exc:
+        typer.echo(f"could not reach a museletter server at {url}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    if authed.status_code == 401:
+        typer.echo(f"reached {url} but the API key was rejected", err=True)
+        raise typer.Exit(1)
+    authed.raise_for_status()
+
+    clientconf.save_profile(name, url, api_key)
+    typer.echo(f"connected to {url} (profile '{name}', saved to {clientconf.CONFIG_PATH})")
+
+
+@app.command("print-token")
+def print_token():
+    """Print a connect token for this server's configured URL + API key (run on the server)."""
+    from .config import Settings
+
+    settings = Settings.from_env()
+    if not settings.base_url or not settings.api_key:
+        typer.echo(
+            "MUSELETTER_BASE_URL and MUSELETTER_API_KEY must be set to print a connect token",
+            err=True,
+        )
+        raise typer.Exit(1)
+    typer.echo(clientconf.encode_token(settings.base_url, settings.api_key))
+
+
+@app.command()
+def status():
+    """Show which server this machine is pointed at and whether it's reachable."""
+    try:
+        url, api_key, source = clientconf.resolve(STATE["profile"])
+    except clientconf.ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    info: dict = {"url": url, "source": source, "reachable": False, "authenticated": False}
+    try:
+        with httpx.Client(base_url=url, timeout=15) as client:
+            info["reachable"] = client.get("/health").status_code == 200
+            if info["reachable"]:
+                lists = client.get("/v1/lists", headers={"Authorization": f"Bearer {api_key}"})
+                info["authenticated"] = lists.status_code == 200
+                if info["authenticated"]:
+                    data = lists.json()["lists"]
+                    info["lists"] = len(data)
+                    info["active_subscribers"] = sum(item.get("active_subscribers", 0) for item in data)
+    except httpx.HTTPError as exc:
+        info["error"] = str(exc)
+
+    if STATE["json"]:
+        typer.echo(json.dumps(info, indent=2))
+    else:
+        typer.echo(f"server:        {info['url']}  ({source})")
+        typer.echo(f"reachable:     {'yes' if info['reachable'] else 'no'}")
+        typer.echo(f"authenticated: {'yes' if info['authenticated'] else 'no'}")
+        if info.get("authenticated"):
+            typer.echo(f"lists:         {info['lists']}")
+            typer.echo(f"active subs:   {info['active_subscribers']}")
+    raise typer.Exit(0 if info["authenticated"] else 1)
 
 
 @app.command()
@@ -428,6 +496,146 @@ def suppressions_add(email: str):
 def suppressions_rm(email: str):
     _call("DELETE", f"/v1/suppressions/{email}")
     typer.echo(f"removed {email} from suppressions")
+
+
+# ---------- skill ----------
+
+
+@skill_app.command("install")
+def skill_install(
+    project: bool = typer.Option(
+        False, "--project", help="install into ./.claude/skills instead of ~/.claude"
+    ),
+    directory: str = typer.Option(None, "--dir", help="explicit skills directory to install into"),
+    force: bool = typer.Option(False, "--force", help="overwrite an existing install"),
+):
+    """Install the bundled agent skill into a Claude Code skills directory."""
+    import shutil
+    from importlib.resources import as_file, files
+
+    if directory:
+        base = Path(directory)
+    elif project:
+        base = Path.cwd() / ".claude" / "skills"
+    else:
+        base = Path.home() / ".claude" / "skills"
+    target = base / "museletter"
+
+    if target.exists() and not force:
+        typer.echo(f"{target} already exists; pass --force to overwrite", err=True)
+        raise typer.Exit(1)
+
+    source = files("museletter") / "skill"
+    with as_file(source) as skill_dir:
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill_dir, target)
+    typer.echo(f"installed skill to {target}")
+
+
+# ---------- init ----------
+
+
+@app.command()
+def init(
+    base_url: str = typer.Option(None, "--base-url", help="public URL of the server"),
+    from_email: str = typer.Option(None, "--from-email", help="sender address"),
+    from_name: str = typer.Option("", "--from-name", help="sender display name"),
+    postal_address: str = typer.Option("", "--postal-address", help="footer postal address"),
+    region: str = typer.Option("us-east-1", "--region", help="AWS region"),
+    api_key: str = typer.Option(None, "--api-key", help="admin API key (generated if omitted)"),
+    env_file: str = typer.Option(".env", "--env-file", help="path to write env to; '-' to print only"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="never prompt; use flags/defaults"),
+):
+    """Bootstrap a server: generate an API key, write an env file, print a connect token."""
+    import secrets
+
+    if not non_interactive:
+        base_url = base_url or typer.prompt("Public base URL (e.g. https://news.example.com)")
+        from_email = from_email or typer.prompt("Sender email (SES-verified)")
+        from_name = from_name or typer.prompt("Sender name", default="")
+        postal_address = postal_address or typer.prompt("Postal address (CAN-SPAM)", default="")
+    if not base_url or not from_email:
+        typer.echo("--base-url and --from-email are required", err=True)
+        raise typer.Exit(1)
+    api_key = api_key or secrets.token_hex(32)
+
+    env = {
+        "MUSELETTER_API_KEY": api_key,
+        "MUSELETTER_BASE_URL": base_url.rstrip("/"),
+        "MUSELETTER_FROM_EMAIL": from_email,
+        "MUSELETTER_FROM_NAME": from_name,
+        "MUSELETTER_POSTAL_ADDRESS": postal_address,
+        "AWS_REGION": region,
+    }
+    env_text = "".join(f"{k}={v}\n" for k, v in env.items())
+    token = clientconf.encode_token(base_url, api_key)
+
+    # Write the env file in every mode (it's the command's side effect); only the
+    # rendering differs between --json and human output.
+    wrote_path = None
+    if env_file != "-":
+        path = Path(env_file)
+        path.write_text(env_text)
+        path.chmod(0o600)
+        wrote_path = str(path)
+
+    if STATE["json"]:
+        typer.echo(json.dumps({"env": env, "connect_token": token, "env_file": wrote_path}))
+        return
+
+    if env_file == "-":
+        typer.echo(env_text)
+    else:
+        typer.echo(f"wrote {wrote_path} (keep it secret)")
+    typer.echo("\nStart the server with this env, then connect a client with:\n")
+    typer.echo(f"  museletter connect {token}\n")
+    typer.echo(
+        "Set your AWS credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) too, then run `museletter doctor`."
+    )
+
+
+# ---------- service ----------
+
+
+@service_app.command("install")
+def service_install(
+    host: str = typer.Option("127.0.0.1", help="bind address"),
+    port: int = typer.Option(8000, help="bind port"),
+    env_file: str = typer.Option(".env", "--env-file", help="env file the service loads"),
+    start: bool = typer.Option(True, "--start/--no-start", help="start the service after installing"),
+):
+    """Install museletter as a launchd (macOS) or systemd (Linux) user service."""
+    from . import service
+
+    try:
+        path = service.install(host=host, port=port, env_file=str(Path(env_file).resolve()), start=start)
+    except service.ServiceError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"installed service unit at {path}" + (" and started it" if start else ""))
+
+
+@service_app.command("uninstall")
+def service_uninstall():
+    """Stop and remove the museletter user service."""
+    from . import service
+
+    try:
+        service.uninstall()
+    except service.ServiceError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo("service removed")
+
+
+@service_app.command("status")
+def service_status():
+    """Show whether the museletter user service is installed and running."""
+    from . import service
+
+    typer.echo(service.status())
 
 
 def main():

@@ -38,7 +38,13 @@ running instance.
   use `string.Template` `$vars` (never str.format — CSS braces)
 - `tokens.py` — HMAC tokens for confirm/unsubscribe links
 - `doctor.py` — DNS/SES/config preflight checks
-- `cli.py` — typer app: `serve` + HTTP client commands mirroring the API
+- `clientconf.py` — CLIENT-side config: connect-token (`ml_...`) encode/decode
+  and named profiles in `~/.config/museletter/config.toml` (env overrides)
+- `service.py` — launchd (macOS) / systemd `--user` (Linux) service install
+- `cli.py` — typer app. Server: `serve`, `init`, `print-token`, `service *`.
+  Client: `connect`, `status`, `skill install`, and the API-mirroring commands
+- `skill/` — the bundled agent skill (SKILL.md + recipes), shipped in the wheel
+  and installed via `museletter skill install`
 
 ## Invariants — do not weaken
 

@@ -21,7 +21,7 @@ primitives:
 - `museletter doctor` — checks DNS, DKIM, DMARC, SES sandbox/quota, and config
 
 And nothing more. No automations, no A/B tests, no landing pages, no tracking
-pixels. RSS-to-email? That's your agent's job — see `skill/`.
+pixels. RSS-to-email? That's your agent's job — see the bundled skill.
 
 ## Quickstart
 
@@ -74,7 +74,7 @@ Deployment guides for [Fly.io](docs/deploy/fly.md), [Railway/Render](docs/deploy
    HTTPS subscription to `https://your-server/webhooks/sns` (museletter
    auto-confirms it), then set `MUSELETTER_SES_CONFIGURATION_SET`.
 
-Step-by-step commands: [skill/recipes/aws-ses-setup.md](skill/recipes/aws-ses-setup.md).
+Step-by-step commands: [src/museletter/skill/recipes/aws-ses-setup.md](src/museletter/skill/recipes/aws-ses-setup.md).
 This wiring is not optional — without it bounces are never suppressed and SES
 will eventually suspend the account.
 
@@ -121,11 +121,18 @@ and hard bounces/complaints are auto-added to the global suppression list.
 
 ## Agent-first design
 
-The `skill/` directory is a ready-made skill for Claude Code (and any agent that
-reads Markdown): drop it into `.claude/skills/museletter/`. The API is built for
-agents — idempotency keys on mutations, dry runs, mandatory confirm-to-send,
-test-send-before-send guardrails, machine-readable errors, and `doctor` for
-self-diagnosis.
+museletter ships with a ready-made skill for Claude Code (and any agent that
+reads Markdown). After installing the CLI, drop it into place with:
+
+```bash
+museletter skill install          # ~/.claude/skills/museletter/ (all projects)
+museletter skill install --project # ./.claude/skills/museletter/ (this repo only)
+```
+
+The skill source lives at [`src/museletter/skill/`](src/museletter/skill/). The
+API is built for agents — idempotency keys on mutations, dry runs, mandatory
+confirm-to-send, test-send-before-send guardrails, machine-readable errors, and
+`doctor` for self-diagnosis.
 
 ## Development
 
