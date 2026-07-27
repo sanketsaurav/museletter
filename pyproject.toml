@@ -54,6 +54,10 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/museletter"]
 
+# Ship the README inside the package so `museletter docs` can print it offline.
+[tool.hatch.build.targets.wheel.force-include]
+"README.md" = "museletter/README.md"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

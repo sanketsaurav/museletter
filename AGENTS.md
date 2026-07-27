@@ -59,9 +59,9 @@ running instance.
   delivered/bounced/complained (via SNS); suppressed/failed are terminal.
   Resume-after-crash and no-double-send both depend on row state - any sender
   change must preserve at-least-once + state-dedupe semantics.
-- **Portability rules** (Cloudflare Workers/D1 is a planned second target):
-  SQLite-dialect SQL only; the DB is the queue (no Redis/Celery); SES over
-  signed HTTPS only (no boto3, no SMTP).
+- **Keep the core simple and portable**: SQLite-dialect SQL only; the DB is
+  the queue (no Redis/Celery); SES over signed HTTPS only (no boto3, no SMTP).
+  This keeps the one-process/one-file design intact and easy to run anywhere.
 - **Tests never touch the network**: `FakeSES` from `tests/conftest.py` for
   the app, `httpx.MockTransport` for client/verifier tests, in-test generated
   certs for SNS crypto.

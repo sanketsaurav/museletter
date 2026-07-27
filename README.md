@@ -1,86 +1,260 @@
 # museletter
 
-A headless, agent-first newsletter platform. One container, one SQLite database,
-Amazon SES. No web UI - you (or your AI agent) operate it through a CLI and an HTTP API.
+A headless, agent-first newsletter platform. One container, one SQLite
+database, Amazon SES. There is no web UI: you (or your AI agent) operate it
+through a CLI and an HTTP API.
 
 ## Why
 
-Newsletter platforms charge per subscriber. Amazon SES charges **$0.10 per 1,000
-emails** - a 50,000-subscriber issue costs $5, and hosting museletter costs a few
-dollars a month on any container platform. If you send occasional emails to people
-who subscribed on your website, you don't need a marketing suite; you need the
-primitives:
+Newsletter platforms charge per subscriber. Amazon SES charges about **$0.10
+per 1,000 emails**, so a 50,000-subscriber issue costs $5 and hosting
+museletter costs a few dollars a month on any container host. If you send the
+occasional email to people who subscribed on your website, you don't need a
+marketing suite. You need the primitives, and nothing else:
 
-- subscribers, lists, and tags (CSV import/export)
+- subscribers, lists, and tags (with CSV import/export)
 - a public subscribe endpoint with double opt-in
 - Markdown campaigns rendered into a clean, battle-tested email template
 - RFC 8058 one-click unsubscribe, injected automatically on every send
-- automatic bounce/complaint suppression (via SES → SNS webhooks)
+- automatic bounce/complaint suppression via SES to SNS webhooks
 - a crash-safe send ledger that respects SES rate limits and resumes mid-blast
 - per-campaign delivery stats
-- `museletter doctor` - checks DNS, DKIM, DMARC, SES sandbox/quota, and config
+- `museletter doctor`, which checks DNS, DKIM, DMARC, SES sandbox/quota, config
 
-And nothing more. No automations, no A/B tests, no landing pages, no tracking
-pixels. RSS-to-email? That's your agent's job - see the bundled skill.
+No automations, no A/B tests, no landing pages, no tracking pixels. Want
+RSS-to-email? That is your agent's job, and it ships as a skill recipe.
+
+## How it works
+
+Three layers:
+
+1. **The server** (`museletter serve`): a FastAPI app over one SQLite file.
+   Its HTTP surface has two audiences. The **public endpoints**
+   (`/subscribe`, `/confirm`, `/unsubscribe`, `/webhooks/sns`) must be
+   reachable from the internet, because readers click links in their inbox and
+   Amazon SNS posts delivery events to the webhook. The **admin API**
+   (`/v1/*`, bearer-authenticated) only needs to be reachable by you.
+2. **The CLI** (`museletter`): the same binary runs the server *and* is the
+   admin client for a running server, local or remote.
+3. **The skill**: a bundled set of recipes so an agent can drive the CLI. See
+   [Agent-first design](#agent-first-design).
+
+Sending never happens inline. A campaign materializes one row per recipient in
+a ledger table; a background loop drains that ledger through SES at your
+configured rate, marking each row with its SES message id. A crash or redeploy
+resumes from the pending rows, and retries cannot double-send.
+
+## Install
+
+```bash
+pip install museletter          # the CLI and server
+```
+
+Or run the server as a container (see [Deployment](#deployment)):
+
+```bash
+docker run ghcr.io/sanketsaurav/museletter:latest
+```
 
 ## Quickstart
 
+museletter is two installs: the **server** on an always-on host, and the
+**CLI** on your machine pointed at that server. On a single machine (a Mac
+mini, say) they are the same install talking to `localhost`.
+
+### 1. Bootstrap and run the server
+
+On the host, generate config (this writes a `.env` and prints a connect
+token):
+
+```bash
+museletter init --base-url https://news.example.com --from-email you@example.com
+```
+
+Add your AWS credentials to the `.env` (see [AWS SES setup](#aws-ses-setup-once)),
+then start the server with that environment. Any container host works; the
+simplest is Docker:
+
+```bash
+docker run -d --env-file .env -v museletter:/data -p 8000:8000 \
+  ghcr.io/sanketsaurav/museletter:latest
+```
+
+`museletter init` prints a **connect token**: one `ml_...` blob that encodes
+the server URL and admin API key. Copy it.
+
+### 2. Point your CLI at the server
+
+On your laptop:
+
 ```bash
 pip install museletter
-
-export MUSELETTER_API_KEY=$(openssl rand -hex 32)
-export MUSELETTER_BASE_URL=https://news.example.com   # public URL of this server
-export MUSELETTER_FROM_EMAIL=newsletter@example.com
-export MUSELETTER_FROM_NAME="Your Name"
-export MUSELETTER_POSTAL_ADDRESS="123 Main St, City"  # CAN-SPAM requires one
-export AWS_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-
-museletter serve
+museletter connect ml_...        # paste the token; verifies reachability + auth
+museletter skill install         # drop the agent skill into ~/.claude/skills
+museletter doctor                # confirm SES, DNS, and config are healthy
+museletter status                # server, reachability, subscriber counts
 ```
 
-A `default` list exists out of the box. From another shell (or machine):
+`connect` saves a named profile in `~/.config/museletter/config.toml`. Manage
+several servers with `--name` on connect and `--profile` on any command.
+
+### 3. Send your first issue
 
 ```bash
-export MUSELETTER_URL=https://news.example.com MUSELETTER_API_KEY=...
-
-museletter doctor                       # verify SES + DNS before anything else
 museletter subs add reader@example.com --name "First Reader"
 museletter campaigns create --subject "Hello" --file issue.md
-museletter campaigns test cmp_xxx --to you@example.com
-museletter campaigns send cmp_xxx      # asks for confirmation
-museletter campaigns stats cmp_xxx
+museletter campaigns test cmp_xxx --to you@example.com   # test send to yourself
+museletter campaigns send cmp_xxx --dry-run              # show the audience
+museletter campaigns send cmp_xxx                        # asks to confirm
+museletter campaigns stats cmp_xxx                       # sent/delivered/bounced
 ```
 
-Every command takes `--json`. The HTTP API is browsable at `/docs` and uses
-`Authorization: Bearer $MUSELETTER_API_KEY`.
-
-Docker instead of pip:
-
-```bash
-docker build -t museletter . && docker run -p 8000:8000 -v museletter:/data \
-  -e MUSELETTER_API_KEY=... [...] museletter
-```
-
-Deployment guides for [Fly.io](docs/deploy/fly.md), [Railway/Render](docs/deploy/railway.md),
-[any VPS](docs/deploy/vps.md), and [Cloudflare](docs/deploy/cloudflare.md).
+Every command accepts `--json`. The HTTP API is browsable at `/docs` and
+authenticates with `Authorization: Bearer <api key>`.
 
 ## AWS SES setup (once)
 
-1. Verify your domain in SES (adds DKIM CNAMEs), add a DMARC record.
-2. Request production access (new accounts are sandboxed).
-3. Wire bounce/complaint events to museletter: configuration set → SNS topic →
-   HTTPS subscription to `https://your-server/webhooks/sns` (museletter
-   auto-confirms it), then set `MUSELETTER_SES_CONFIGURATION_SET`.
+museletter sends through Amazon SES, so SES has to be set up once. All of this
+is scriptable, and the bundled skill has a copy-paste recipe
+(`museletter skill install`, then see `recipes/aws-ses-setup.md`).
 
-Step-by-step commands: [src/museletter/skill/recipes/aws-ses-setup.md](src/museletter/skill/recipes/aws-ses-setup.md).
-This wiring is not optional - without it bounces are never suppressed and SES
-will eventually suspend the account.
+1. **Verify your sending domain** (creates DKIM keys):
+
+   ```bash
+   aws sesv2 create-email-identity --email-identity example.com
+   aws sesv2 get-email-identity --email-identity example.com \
+     --query 'DkimAttributes.Tokens'
+   ```
+
+   Add each returned token as a CNAME:
+   `<token>._domainkey.example.com -> <token>.dkim.amazonses.com`.
+
+2. **Add a DMARC record.** Gmail and Yahoo require one for bulk senders. A
+   minimal TXT record on `_dmarc.example.com`: `v=DMARC1; p=none`.
+
+3. **Wire bounce/complaint events back to museletter.** Without this, bounces
+   are never suppressed and SES will eventually suspend your account.
+
+   ```bash
+   aws sesv2 create-configuration-set --configuration-set-name museletter
+   aws sns create-topic --name museletter-events   # note the TopicArn
+   aws sesv2 create-configuration-set-event-destination \
+     --configuration-set-name museletter \
+     --event-destination-name sns \
+     --event-destination '{"Enabled":true,"MatchingEventTypes":["BOUNCE","COMPLAINT","DELIVERY"],"SnsDestination":{"TopicArn":"<TopicArn>"}}'
+   aws sns subscribe --topic-arn <TopicArn> --protocol https \
+     --notification-endpoint https://news.example.com/webhooks/sns
+   ```
+
+   museletter auto-confirms the SNS subscription. Then set
+   `MUSELETTER_SES_CONFIGURATION_SET=museletter` and
+   `MUSELETTER_SNS_TOPIC_ARN=<TopicArn>` in your environment. Setting the topic
+   ARN is important: it makes the webhook reject events from any other topic.
+
+4. **Request production access.** New SES accounts are sandboxed (only verified
+   recipients, 200/day). This is a support form in the SES console.
+
+5. **Minimal IAM policy** for the server's credentials: `ses:SendEmail`,
+   `ses:GetAccount`, `ses:GetEmailIdentity`.
+
+Run `museletter doctor` at any point; it reports exactly which of these is
+missing.
+
+## Deployment
+
+The server is a single stateless process plus one SQLite file. Run the
+**Docker image** anywhere and mount a volume at `/data`. That is the primary
+and best-supported path; the platform notes below are thin wrappers around it.
+
+The one hard requirement on every platform: the **public endpoints must be
+reachable from the internet** over HTTPS, and `MUSELETTER_BASE_URL` must be
+that public URL (it goes into every confirm/unsubscribe link and the SNS
+subscription).
+
+### Docker (primary)
+
+```bash
+docker run -d --name museletter --restart unless-stopped \
+  --env-file .env \
+  -v museletter-data:/data \
+  -p 8000:8000 \
+  ghcr.io/sanketsaurav/museletter:latest
+```
+
+Build it yourself instead of pulling: `docker build -t museletter .`. The
+database lives at `/data/museletter.db` (set by the image); back up that one
+file and you have backed up everything. Put the container behind a reverse
+proxy (Caddy, nginx, your platform's router) for TLS.
+
+### Render (or any PaaS with a Dockerfile)
+
+Create a service from this repo; Render detects the Dockerfile. Then:
+
+1. Attach a **persistent disk** mounted at `/data`. Without it, a redeploy
+   wipes your subscribers.
+2. Set the environment variables from the table below.
+3. Disable scale-to-zero / sleeping. The send loop runs in-process, so a
+   sleeping instance pauses mid-campaign (it resumes safely, just late).
+
+### A plain VPS
+
+Any small box works. Run the container as above, or `pip install museletter`
+and run `museletter serve` under systemd. Front it with Caddy for automatic
+HTTPS:
+
+```
+news.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+### Self-host (Mac mini or any always-on machine)
+
+Run the server locally and expose only the public endpoints through a tunnel
+(a home LAN is not internet-reachable on its own). A
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+is the cleanest (no open ports, free, stable hostname); Tailscale Funnel and
+ngrok work the same way. Point the tunnel at `http://127.0.0.1:8000` and set
+`MUSELETTER_BASE_URL` to the tunnel's public hostname.
+
+Keep it running across reboots with the built-in service installer (launchd on
+macOS, a systemd user unit on Linux):
+
+```bash
+museletter service install --env-file .env    # starts on boot, restarts on crash
+museletter service status
+museletter service uninstall
+```
+
+Drive it from the same machine over localhost:
+`museletter connect http://127.0.0.1:8000 --api-key <key>`.
+
+## Configuration
+
+Set these in the server's environment (`museletter init` writes most of them).
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `MUSELETTER_API_KEY` | yes | admin credential (any long random string) |
+| `MUSELETTER_BASE_URL` | yes | public URL used in confirm/unsubscribe links |
+| `MUSELETTER_FROM_EMAIL` | yes | sender address (on an SES-verified domain) |
+| `MUSELETTER_FROM_NAME` | no | sender display name |
+| `MUSELETTER_POSTAL_ADDRESS` | no* | postal address in the footer (*required by CAN-SPAM) |
+| `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
+| `MUSELETTER_SEND_RATE` | no | emails/sec, default 10; keep under your SES rate |
+| `MUSELETTER_SES_CONFIGURATION_SET` | no | configuration set for event feedback |
+| `MUSELETTER_SNS_TOPIC_ARN` | recommended | your SNS topic ARN; the webhook rejects events from any other topic |
+| `MUSELETTER_TRUST_PROXY` | no | `true` when behind a proxy, so rate limiting uses `X-Forwarded-For` not the proxy IP |
+| `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` (the image uses `/data/museletter.db`) |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
+
+The client CLI reads its server from `~/.config/museletter/config.toml`
+(written by `museletter connect`), or from `MUSELETTER_URL` +
+`MUSELETTER_API_KEY` when set.
 
 ## Subscribing readers
 
-Point your website's form at the public endpoint (no auth):
+Point your website's form at the public endpoint (no auth needed):
 
 ```html
 <form action="https://news.example.com/subscribe/default" method="post">
@@ -90,49 +264,91 @@ Point your website's form at the public endpoint (no auth):
 </form>
 ```
 
-JSON works too. Double opt-in by default (`MUSELETTER_OPT_IN=single` to disable).
-Unsubscribes are one-click (RFC 8058) and immediate - even mid-campaign.
+JSON bodies work too. Double opt-in is the default; set
+`MUSELETTER_OPT_IN=single` to skip the confirmation email. Unsubscribes are
+one-click (RFC 8058) and take effect immediately, even mid-campaign.
 
-## Configuration
+## Sending a campaign
 
-| Variable | Required | Meaning |
-|---|---|---|
-| `MUSELETTER_API_KEY` | yes | admin credential (any long random string) |
-| `MUSELETTER_BASE_URL` | yes | public URL used in confirm/unsubscribe links |
-| `MUSELETTER_FROM_EMAIL` | yes | sender address (SES-verified domain) |
-| `MUSELETTER_FROM_NAME` | no | sender display name |
-| `MUSELETTER_POSTAL_ADDRESS` | no* | postal address in the footer (*legally required) |
-| `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
-| `MUSELETTER_SEND_RATE` | no | emails/sec, default 10 - keep under your SES rate |
-| `MUSELETTER_SES_CONFIGURATION_SET` | no | configuration set for event feedback |
-| `MUSELETTER_SNS_TOPIC_ARN` | no† | your SNS topic ARN; when set, the webhook rejects events from any other topic (†strongly recommended) |
-| `MUSELETTER_TRUST_PROXY` | no | set to `true` when behind a proxy (Fly/Railway/Cloudflare) so rate limiting uses `X-Forwarded-For`, not the proxy IP |
-| `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` |
-| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
+Campaign bodies are Markdown. Personalization tokens are `{{name}}` and
+`{{email}}`, with fallbacks like `{{name|there}}`. The unsubscribe footer and
+postal address are added automatically; never write your own unsubscribe link.
 
-## How a 50k blast works
+Sending is guarded so an automated caller cannot blast the wrong thing:
 
-Sending materializes one ledger row per recipient. A background loop drains
-pending rows through SES at `MUSELETTER_SEND_RATE`, marking each with its SES
-message id - so a crash or redeploy resumes exactly where it stopped, and
-retries can't double-send. At SES's default 14/sec production rate, 50k emails
-take about an hour. SNS webhooks then flip rows to delivered/bounced/complained,
-and hard bounces/complaints are auto-added to the global suppression list.
+- `--dry-run` reports the audience size and a sample without sending.
+- A **test send** is required before the real send (or pass `--skip-test`).
+- The real send needs explicit confirmation (`--yes` for automation).
+- The send is idempotent: re-running `campaigns send` for a campaign that is
+  already sending does nothing.
+
+Target a subset with tags: `campaigns create ... --tag vip` sends only to
+subscribers carrying that tag. Pick a list with `--list <slug>` (a `default`
+list exists out of the box).
+
+## CLI reference
+
+```
+museletter serve                 run the server
+museletter init                  bootstrap server config (.env + connect token)
+museletter print-token           print a connect token for a configured server
+museletter service <cmd>         install|uninstall|status (launchd/systemd)
+
+museletter connect <token|--url> point the CLI at a server, save a profile
+museletter status                server, reachability, auth, counts
+museletter doctor                DNS/DKIM/DMARC/SES/config health checks
+museletter health                liveness of the configured server
+museletter docs                  print this README (offline, agent-readable)
+museletter skill install         install the agent skill into .claude/skills
+
+museletter lists <cmd>           list|create|show|rm
+museletter subs <cmd>            add|list|rm|tag|untag|import|export
+museletter tags <cmd>            list|create
+museletter campaigns <cmd>       create|show|edit|preview|test|send|stats|rm
+museletter suppressions <cmd>    list|add|rm
+```
+
+Run any command with `--help` for its flags, or `--json` for machine output.
+
+## Troubleshooting
+
+Start with `museletter doctor` (server health) and `museletter status` (can
+the CLI reach and authenticate). Common cases:
+
+- **`doctor` says the account is in the SES sandbox:** you can only email
+  verified addresses until you request production access (SES console).
+- **Emails land in spam / DKIM or DMARC failing:** re-check the CNAME and TXT
+  records from [AWS SES setup](#aws-ses-setup-once); `doctor` reports each.
+- **Bounces or complaints are not being suppressed:** the SNS webhook is not
+  wired. Confirm the configuration set, the HTTPS subscription to
+  `/webhooks/sns`, and that `MUSELETTER_SNS_TOPIC_ARN` matches your topic.
+- **The subscribe form returns 429 under load:** you are behind a proxy and
+  rate limiting sees the proxy IP as one client. Set `MUSELETTER_TRUST_PROXY=true`.
+- **`campaigns send` refuses with 412:** do a test send first, or pass
+  `--skip-test`.
+- **`connect` reports "API key was rejected":** the token or key is stale;
+  regenerate one on the server with `museletter print-token`.
+- **The database:** everything is in one SQLite file (`MUSELETTER_DB_PATH`, or
+  `/data/museletter.db` in the image). Copy it to back up; delete it to reset.
 
 ## Agent-first design
 
-museletter ships with a ready-made skill for Claude Code (and any agent that
-reads Markdown). After installing the CLI, drop it into place with:
+museletter ships with a ready-made skill for Claude Code and any agent that
+reads Markdown. Install it into a skills directory with:
 
 ```bash
-museletter skill install          # ~/.claude/skills/museletter/ (all projects)
-museletter skill install --project # ./.claude/skills/museletter/ (this repo only)
+museletter skill install            # ~/.claude/skills/museletter (all projects)
+museletter skill install --project  # ./.claude/skills/museletter (this repo)
 ```
 
-The skill source lives at [`src/museletter/skill/`](src/museletter/skill/). The
-API is built for agents - idempotency keys on mutations, dry runs, mandatory
-confirm-to-send, test-send-before-send guardrails, machine-readable errors, and
-`doctor` for self-diagnosis.
+The skill's recipes cover publishing an issue, first-time SES setup, migrating
+from another platform, and a periodic health check. The skill source lives at
+[`src/museletter/skill/`](src/museletter/skill/).
+
+The whole tool is built for agents: idempotency keys on mutations, dry runs,
+mandatory confirm-to-send, test-send-before-send guardrails, machine-readable
+JSON on every command, `doctor` for self-diagnosis, and `museletter docs` so
+the full manual is available offline from the CLI itself.
 
 ## Development
 
@@ -144,7 +360,8 @@ uv venv && uv pip install -e ".[dev]"
 .venv/bin/ty check          # typecheck
 ```
 
-All four must pass before a PR.
+All four must pass before a PR. See [AGENTS.md](AGENTS.md) for architecture and
+conventions.
 
 ## License
 

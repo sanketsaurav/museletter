@@ -318,6 +318,17 @@ def test_print_token_roundtrips(monkeypatch):
 # ---------- skill install ----------
 
 
+def test_docs_prints_readme():
+    result = runner.invoke(cli_app, ["docs"])
+    assert result.exit_code == 0
+    assert "# museletter" in result.output
+    assert "AWS SES setup" in result.output  # a section an agent needs
+    assert "—" not in result.output and "–" not in result.output
+
+
+# ---------- skill install ----------
+
+
 def test_skill_install_copies_files(tmp_path):
     result = runner.invoke(cli_app, ["skill", "install", "--dir", str(tmp_path)])
     assert result.exit_code == 0, result.output

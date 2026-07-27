@@ -211,6 +211,30 @@ def health():
     _emit(_call("GET", "/health"))
 
 
+def _read_readme() -> str:
+    from importlib.resources import files
+
+    bundled = files("museletter") / "README.md"  # present in an installed wheel
+    if bundled.is_file():
+        return bundled.read_text(encoding="utf-8")
+    repo_readme = Path(__file__).resolve().parent.parent.parent / "README.md"  # editable checkout
+    if repo_readme.is_file():
+        return repo_readme.read_text(encoding="utf-8")
+    return "README not found; see https://github.com/sanketsaurav/museletter"
+
+
+@app.command()
+def docs():
+    """Print the full museletter manual (the README), for humans and agents alike."""
+    text = _read_readme()
+    if sys.stdout.isatty():
+        import pydoc
+
+        pydoc.pager(text)
+    else:
+        typer.echo(text)
+
+
 # ---------- lists ----------
 
 
