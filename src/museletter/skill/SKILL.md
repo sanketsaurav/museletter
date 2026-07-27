@@ -1,6 +1,6 @@
 ---
 name: museletter
-description: Operate a museletter newsletter server — manage subscribers and lists, draft and send campaigns, check delivery stats and account health. Use when the user asks to send a newsletter, announce a new post to subscribers, manage their mailing list, or check newsletter stats.
+description: Operate a museletter newsletter server - manage subscribers and lists, draft and send campaigns, check delivery stats and account health. Use when the user asks to send a newsletter, announce a new post to subscribers, manage their mailing list, or check newsletter stats.
 ---
 
 # Operating museletter
@@ -31,7 +31,7 @@ documented at `$MUSELETTER_URL/docs`; auth is `Authorization: Bearer $MUSELETTER
 3. **Sends are confirmed and idempotent.** `campaigns send <id> --yes` sets an
    idempotency key, so a retried command cannot double-send. A campaign can only
    be sent once; edit a copy for resends.
-4. Do not remove suppressions unless the user explicitly asks — they exist because
+4. Do not remove suppressions unless the user explicitly asks - they exist because
    an address bounced or complained, and sending to them damages deliverability.
 
 ## Core workflow: publish an issue
@@ -46,7 +46,7 @@ museletter campaigns stats cmp_xxx      # poll until pending reaches 0
 ```
 
 Campaign bodies are Markdown. Personalization tokens: `{{name}}` and `{{email}}`,
-with fallbacks like `{{name|there}}`. An unsubscribe footer is added automatically —
+with fallbacks like `{{name|there}}`. An unsubscribe footer is added automatically -
 never add your own unsubscribe link.
 
 Audience targeting: `--list <slug>` picks the list (default list slug: `default`);
@@ -54,7 +54,7 @@ Audience targeting: `--list <slug>` picks the list (default list slug: `default`
 
 ## Recipes
 
-- `recipes/publish-new-issue.md` — announce a new blog post end to end
-- `recipes/aws-ses-setup.md` — first-time SES + SNS wiring (run once per install)
-- `recipes/migrate-from-another-platform.md` — import from Mailchimp/Buttondown/etc.
-- `recipes/health-check.md` — periodic deliverability and list hygiene review
+- `recipes/publish-new-issue.md` - announce a new blog post end to end
+- `recipes/aws-ses-setup.md` - first-time SES + SNS wiring (run once per install)
+- `recipes/migrate-from-another-platform.md` - import from Mailchimp/Buttondown/etc.
+- `recipes/health-check.md` - periodic deliverability and list hygiene review

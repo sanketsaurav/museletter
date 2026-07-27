@@ -52,7 +52,7 @@ async def idempotency_middleware(request: Request, call_next):
     key = request.headers.get("Idempotency-Key", "")
     # Only authenticated mutations are idempotency-tracked. Gating on the API key
     # keeps the replay branch from serving cached bodies (or caching 401s) to
-    # unauthenticated callers — the route's own require_api_key still runs below.
+    # unauthenticated callers; the route's own require_api_key still runs below.
     if (
         not key
         or request.method not in ("POST", "PATCH", "DELETE")

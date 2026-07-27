@@ -39,7 +39,7 @@ class RateLimiter:
 def client_ip(request: Request) -> str:
     """The requester's IP. Behind a proxy (Fly/Railway/Cloudflare) the socket
     peer is the proxy, so all visitors share one bucket unless we read the
-    forwarded header — only trusted when the operator opts in via trust_proxy."""
+    forwarded header, and only when the operator opts in via trust_proxy."""
     if request.app.state.settings.trust_proxy:
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
@@ -171,8 +171,8 @@ async def confirm(request: Request, token: str):
     if row is None:
         return _page("Invalid link", "<p>This confirmation link is not valid.</p>")
     list_name = html_mod.escape(row["list_name"])
-    # Only a pending double-opt-in may be confirmed. A confirm link is a GET —
-    # link scanners and prefetchers follow it — so it must never resurrect a
+    # Only a pending double-opt-in may be confirmed. A confirm link is a GET
+    # that link scanners and prefetchers follow, so it must never resurrect a
     # subscriber who has since unsubscribed, bounced, or complained.
     if row["status"] == "unconfirmed":
         await db.execute(

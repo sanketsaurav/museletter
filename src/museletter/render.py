@@ -15,7 +15,7 @@ _TOKEN_RE = re.compile(r"\{\{\s*(name|email)\s*(?:\|([^}]*?)\s*)?\}\}")
 
 def load_template(name: str) -> Template:
     """Templates ship inside the package (templates/*.html) and use $var
-    placeholders — string.Template, so literal CSS/HTML braces need no escaping."""
+    placeholders (string.Template), so literal CSS/HTML braces need no escaping."""
     return Template((files("museletter") / "templates" / name).read_text(encoding="utf-8"))
 
 

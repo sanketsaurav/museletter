@@ -8,7 +8,7 @@ import typer
 
 from . import clientconf
 
-app = typer.Typer(help="museletter — a headless, agent-first newsletter platform", no_args_is_help=True)
+app = typer.Typer(help="museletter: a headless, agent-first newsletter platform", no_args_is_help=True)
 lists_app = typer.Typer(help="Manage lists", no_args_is_help=True)
 subs_app = typer.Typer(help="Manage subscribers", no_args_is_help=True)
 tags_app = typer.Typer(help="Manage tags", no_args_is_help=True)

@@ -1,6 +1,6 @@
 ---
 name: tag-release
-description: Cut a new museletter release — bump versions, write the changelog, commit, tag, push, and watch the release workflows. Use when the user wants to release, ship, publish, or tag a new version.
+description: Cut a new museletter release - bump versions, write the changelog, commit, tag, push, and watch the release workflows. Use when the user wants to release, ship, publish, or tag a new version.
 ---
 
 # Cut a museletter release
@@ -13,7 +13,7 @@ via trusted publishing, creates a GitHub release with the artifacts) and
 
 This repo uses **bump-then-tag**: version bumps and the changelog are committed
 to `master` first, then the tag points at that commit. The version lives in
-**two places that must agree** — `pyproject.toml` (`version`) and
+**two places that must agree** - `pyproject.toml` (`version`) and
 `src/museletter/__init__.py` (`__version__`). The release workflow hard-fails
 if either disagrees with the tag.
 
@@ -62,7 +62,7 @@ Update `CHANGELOG.md` (create it with a `# Changelog` header if missing),
 inserting a new section at the top:
 
 ```markdown
-## vX.Y.Z — YYYY-MM-DD
+## vX.Y.Z - YYYY-MM-DD
 
 ### Features
 - …
@@ -72,7 +72,7 @@ inserting a new section at the top:
 ```
 
 Write user-facing prose from the actual changes (read the diffs when commit
-subjects aren't enough) — not raw commit subjects. Omit empty sections; fold
+subjects aren't enough) - not raw commit subjects. Omit empty sections; fold
 notable internals into a short `### Internal` section only when worth telling
 users. Call out anything self-hosters must act on (new env vars, schema
 changes, changed endpoints) in an `### Upgrade notes` section. For the first
@@ -86,9 +86,9 @@ git commit -m "Release vX.Y.Z"
 git tag -a "vX.Y.Z" -m "vX.Y.Z"
 ```
 
-No AI/tool attribution anywhere — commit, tag, or changelog.
+No AI/tool attribution anywhere - commit, tag, or changelog.
 
-**Confirm with the user before pushing** — show the version and the changelog
+**Confirm with the user before pushing** - show the version and the changelog
 section, and note that pushing publishes to PyPI (irrevocably) and GHCR. Then:
 
 ```sh
@@ -123,13 +123,13 @@ docker manifest inspect ghcr.io/sanketsaurav/museletter:X.Y.Z | grep -c architec
 - **First release / PyPI publish fails with an OIDC error**: the trusted
   publisher isn't registered. The user must add it on pypi.org (project
   `museletter`, owner `sanketsaurav`, repo `museletter`, workflow
-  `release.yml`, environment `pypi`), then re-run the failed workflow run —
+  `release.yml`, environment `pypi`), then re-run the failed workflow run -
   don't re-tag.
 - **Workflow fails before anything published**: fix on master, delete and
   re-push the tag (`git tag -d vX.Y.Z && git push --delete origin vX.Y.Z`,
   re-tag, re-push).
 - **PyPI publish succeeded but something later failed**: a PyPI version can
-  never be reused, even after deletion — never re-tag. Fix forward and cut a
+  never be reused, even after deletion - never re-tag. Fix forward and cut a
   patch release.
 - **Docker workflow failed but PyPI succeeded**: re-run just the docker
   workflow run; it's idempotent (retags the same commit).

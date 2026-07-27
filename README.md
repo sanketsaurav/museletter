@@ -1,12 +1,12 @@
 # museletter
 
 A headless, agent-first newsletter platform. One container, one SQLite database,
-Amazon SES. No web UI — you (or your AI agent) operate it through a CLI and an HTTP API.
+Amazon SES. No web UI - you (or your AI agent) operate it through a CLI and an HTTP API.
 
 ## Why
 
 Newsletter platforms charge per subscriber. Amazon SES charges **$0.10 per 1,000
-emails** — a 50,000-subscriber issue costs $5, and hosting museletter costs a few
+emails** - a 50,000-subscriber issue costs $5, and hosting museletter costs a few
 dollars a month on any container platform. If you send occasional emails to people
 who subscribed on your website, you don't need a marketing suite; you need the
 primitives:
@@ -18,10 +18,10 @@ primitives:
 - automatic bounce/complaint suppression (via SES → SNS webhooks)
 - a crash-safe send ledger that respects SES rate limits and resumes mid-blast
 - per-campaign delivery stats
-- `museletter doctor` — checks DNS, DKIM, DMARC, SES sandbox/quota, and config
+- `museletter doctor` - checks DNS, DKIM, DMARC, SES sandbox/quota, and config
 
 And nothing more. No automations, no A/B tests, no landing pages, no tracking
-pixels. RSS-to-email? That's your agent's job — see the bundled skill.
+pixels. RSS-to-email? That's your agent's job - see the bundled skill.
 
 ## Quickstart
 
@@ -75,7 +75,7 @@ Deployment guides for [Fly.io](docs/deploy/fly.md), [Railway/Render](docs/deploy
    auto-confirms it), then set `MUSELETTER_SES_CONFIGURATION_SET`.
 
 Step-by-step commands: [src/museletter/skill/recipes/aws-ses-setup.md](src/museletter/skill/recipes/aws-ses-setup.md).
-This wiring is not optional — without it bounces are never suppressed and SES
+This wiring is not optional - without it bounces are never suppressed and SES
 will eventually suspend the account.
 
 ## Subscribing readers
@@ -91,7 +91,7 @@ Point your website's form at the public endpoint (no auth):
 ```
 
 JSON works too. Double opt-in by default (`MUSELETTER_OPT_IN=single` to disable).
-Unsubscribes are one-click (RFC 8058) and immediate — even mid-campaign.
+Unsubscribes are one-click (RFC 8058) and immediate - even mid-campaign.
 
 ## Configuration
 
@@ -103,7 +103,7 @@ Unsubscribes are one-click (RFC 8058) and immediate — even mid-campaign.
 | `MUSELETTER_FROM_NAME` | no | sender display name |
 | `MUSELETTER_POSTAL_ADDRESS` | no* | postal address in the footer (*legally required) |
 | `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
-| `MUSELETTER_SEND_RATE` | no | emails/sec, default 10 — keep under your SES rate |
+| `MUSELETTER_SEND_RATE` | no | emails/sec, default 10 - keep under your SES rate |
 | `MUSELETTER_SES_CONFIGURATION_SET` | no | configuration set for event feedback |
 | `MUSELETTER_SNS_TOPIC_ARN` | no† | your SNS topic ARN; when set, the webhook rejects events from any other topic (†strongly recommended) |
 | `MUSELETTER_TRUST_PROXY` | no | set to `true` when behind a proxy (Fly/Railway/Cloudflare) so rate limiting uses `X-Forwarded-For`, not the proxy IP |
@@ -114,7 +114,7 @@ Unsubscribes are one-click (RFC 8058) and immediate — even mid-campaign.
 
 Sending materializes one ledger row per recipient. A background loop drains
 pending rows through SES at `MUSELETTER_SEND_RATE`, marking each with its SES
-message id — so a crash or redeploy resumes exactly where it stopped, and
+message id - so a crash or redeploy resumes exactly where it stopped, and
 retries can't double-send. At SES's default 14/sec production rate, 50k emails
 take about an hour. SNS webhooks then flip rows to delivered/bounced/complained,
 and hard bounces/complaints are auto-added to the global suppression list.
@@ -130,7 +130,7 @@ museletter skill install --project # ./.claude/skills/museletter/ (this repo onl
 ```
 
 The skill source lives at [`src/museletter/skill/`](src/museletter/skill/). The
-API is built for agents — idempotency keys on mutations, dry runs, mandatory
+API is built for agents - idempotency keys on mutations, dry runs, mandatory
 confirm-to-send, test-send-before-send guardrails, machine-readable errors, and
 `doctor` for self-diagnosis.
 

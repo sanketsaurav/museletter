@@ -6,10 +6,10 @@ Two paths, one available today:
 
 Cloudflare Containers runs the standard museletter image at the edge, attached
 to a Worker that routes traffic to it. This works now with the unmodified
-Dockerfile — follow Cloudflare's container quickstart, mount no volume (Containers
+Dockerfile - follow Cloudflare's container quickstart, mount no volume (Containers
 have ephemeral disks), and point `MUSELETTER_DB_PATH` at a persisted location…
 which Containers don't offer yet. **Until Cloudflare containers have durable
-disks, prefer Fly/Railway/VPS** — a newsletter platform cannot run on an
+disks, prefer Fly/Railway/VPS** - a newsletter platform cannot run on an
 ephemeral database.
 
 ## Planned: native Workers + D1
@@ -24,4 +24,4 @@ museletter is deliberately built so a native Cloudflare port stays cheap:
 
 The port needs: a D1 driver behind `db.py`, the send loop hooked to a cron
 trigger instead of a background task, and `pywrangler deploy` packaging.
-Contributions welcome — see the tracking issue.
+Contributions welcome - see the tracking issue.

@@ -47,7 +47,7 @@ async def test_idempotency_does_not_cache_4xx(app_client):
     cid = campaign["id"]
     key = {**AUTH, "Idempotency-Key": f"send-{cid}"}
 
-    # First send fails the test-send guardrail (412) — this must not be cached.
+    # First send fails the test-send guardrail (412); this must not be cached.
     first = await client.post(f"/v1/campaigns/{cid}/send", json={"confirm": True}, headers=key)
     assert first.status_code == 412
 

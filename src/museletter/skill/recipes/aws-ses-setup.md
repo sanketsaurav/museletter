@@ -15,7 +15,7 @@ account that will send. Substitute the user's domain and server URL throughout.
 2. **Recommend DMARC** if missing: TXT record `_dmarc.example.com` with value
    `v=DMARC1; p=none` (Gmail/Yahoo require DMARC for bulk senders).
 
-3. **Wire bounce/complaint events back to museletter** (critical — without this,
+3. **Wire bounce/complaint events back to museletter** (critical - without this,
    bounces are never suppressed and the SES account reputation degrades):
    ```bash
    aws sesv2 create-configuration-set --configuration-set-name museletter
@@ -35,7 +35,7 @@ account that will send. Substitute the user's domain and server URL throughout.
    and suppress your subscribers.
 
 4. **Request production access** (new SES accounts are sandboxed to verified
-   addresses, 200 emails/day). This is a support form in the SES console —
+   addresses, 200 emails/day). This is a support form in the SES console -
    the user must do it; tell them to describe their newsletter honestly and
    mention double opt-in and automatic bounce/complaint suppression.
 

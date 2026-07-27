@@ -108,7 +108,7 @@ def resolve(profile: str | None = None) -> tuple[str, str, str]:
     name = profile or os.environ.get("MUSELETTER_PROFILE") or config.get("default")
     if not name:
         raise ConfigError(
-            "no server configured — run `museletter connect <token>` "
+            "no server configured; run `museletter connect <token>` "
             "(or set MUSELETTER_URL and MUSELETTER_API_KEY)"
         )
     prof = config.get("profiles", {}).get(name)

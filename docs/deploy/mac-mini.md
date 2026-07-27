@@ -7,11 +7,11 @@ fine host. There's one thing to get right first.
 
 museletter's HTTP surface has two audiences:
 
-- **Public endpoints** — `/subscribe`, `/confirm`, `/unsubscribe`, `/webhooks/sns`.
+- **Public endpoints** - `/subscribe`, `/confirm`, `/unsubscribe`, `/webhooks/sns`.
   Your readers click confirm/unsubscribe links from their inbox, and Amazon SNS
   POSTs bounce/complaint events to the webhook. **These must be reachable from
   the public internet.** A Mac mini on your home LAN is not, by itself.
-- **Admin API** — `/v1/*`. Only you (or your agent) call it; it can stay local.
+- **Admin API** - `/v1/*`. Only you (or your agent) call it; it can stay local.
 
 So the Mac-mini recipe is: run the server locally, and expose it with a tunnel.
 A [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
@@ -27,7 +27,7 @@ cloudflared tunnel run --url http://127.0.0.1:8000 museletter
 ```
 
 Set `MUSELETTER_BASE_URL=https://news.example.com` (the tunnel hostname), not the
-LAN address — that URL goes into every confirm/unsubscribe link and the SNS
+LAN address - that URL goes into every confirm/unsubscribe link and the SNS
 subscription. Tailscale Funnel or ngrok work the same way.
 
 ## Run museletter as a service
@@ -50,7 +50,7 @@ museletter service status          # -> running
 
 ## Use the CLI against your local server
 
-On the same machine, connect to localhost — no tunnel needed for admin work:
+On the same machine, connect to localhost - no tunnel needed for admin work:
 
 ```bash
 museletter connect http://127.0.0.1:8000 --api-key "$(grep API_KEY .env | cut -d= -f2)"
