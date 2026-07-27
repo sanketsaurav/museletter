@@ -66,6 +66,11 @@ running instance.
   can't show; ids are `prefix_hex` (`sub_`, `cmp_`, `list_`, `tag_`)
 - API errors are FastAPI `{"detail": "..."}` with accurate status codes; CLI
   exits 1 on any HTTP error and prints `error (<code>): <detail>` to stderr
+- **Commits follow [Conventional Commits](https://www.conventionalcommits.org):**
+  `<type>[optional scope]: <description>`, imperative and lowercase. Types:
+  `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`.
+  Use a scope when it sharpens intent (`fix(ci):`, `feat(cli):`). Breaking
+  changes get a `!` before the colon and a `BREAKING CHANGE:` body footer.
 - No AI/tool attribution in commits, tags, or the changelog
 - Timestamps are ISO-8601 UTC strings via `db.utcnow()`
 
