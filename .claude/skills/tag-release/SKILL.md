@@ -1,9 +1,9 @@
 ---
 name: tag-release
-description: Cut a new museletter release - bump versions, write the changelog, commit, tag, push, and watch the release workflows. Use when the user wants to release, ship, publish, or tag a new version.
+description: Cut a new Museletter release - bump versions, write the changelog, commit, tag, push, and watch the release workflows. Use when the user wants to release, ship, publish, or tag a new version.
 ---
 
-# Cut a museletter release
+# Cut a Museletter release
 
 Pushing a `v*` tag triggers two workflows: `.github/workflows/release.yml`
 (verifies tag = version, runs tests, builds sdist + wheel, publishes to PyPI

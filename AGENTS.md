@@ -1,4 +1,4 @@
-# museletter - agent guide
+# Museletter - agent guide
 
 Headless, agent-first newsletter platform: one FastAPI + SQLite server, Amazon
 SES for delivery, a typer CLI (`museletter`) as the only client. No web UI by
@@ -79,6 +79,9 @@ running instance.
   changes get a `!` before the colon and a `BREAKING CHANGE:` body footer.
 - **No em-dashes or en-dashes anywhere**: not in commit messages, docs, or
   code comments. Use a plain hyphen, a colon, parentheses, or reword.
+- **Name is "Museletter" in prose** (docs, comments, UI/display strings); the
+  package, CLI command, `MUSELETTER_*` env vars, URLs, and code identifiers
+  stay lowercase `museletter`.
 - No AI/tool attribution in commits, tags, or the changelog
 - Timestamps are ISO-8601 UTC strings via `db.utcnow()`
 

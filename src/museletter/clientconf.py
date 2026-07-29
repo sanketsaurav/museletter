@@ -1,6 +1,6 @@
 """Client-side configuration: connect tokens and named server profiles.
 
-The CLI talks to a remote (or local) museletter server. Config lives at
+The CLI talks to a remote (or local) Museletter server. Config lives at
 ~/.config/museletter/config.toml as named profiles; a connect token is a single
 copy-pasteable blob the server emits so wiring up a client is one command.
 """

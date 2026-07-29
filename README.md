@@ -1,4 +1,4 @@
-# museletter
+# Museletter
 
 A headless, agent-first newsletter platform. One container, one SQLite
 database, Amazon SES. There is no web UI: you (or your AI agent) operate it
@@ -8,7 +8,7 @@ through a CLI and an HTTP API.
 
 Newsletter platforms charge per subscriber. Amazon SES charges about **$0.10
 per 1,000 emails**, so a 50,000-subscriber issue costs $5 and hosting
-museletter costs a few dollars a month on any container host. If you send the
+Museletter costs a few dollars a month on any container host. If you send the
 occasional email to people who subscribed on your website, you don't need a
 marketing suite. You need the primitives, and nothing else:
 
@@ -58,7 +58,7 @@ docker run ghcr.io/sanketsaurav/museletter:latest
 
 ## Quickstart
 
-museletter is two installs: the **server** on an always-on host, and the
+Museletter is two installs: the **server** on an always-on host, and the
 **CLI** on your machine pointed at that server. On a single machine (a Mac
 mini, say) they are the same install talking to `localhost`.
 
@@ -114,7 +114,7 @@ authenticates with `Authorization: Bearer <api key>`.
 
 ## AWS SES setup (once)
 
-museletter sends through Amazon SES, so SES has to be set up once. All of this
+Museletter sends through Amazon SES, so SES has to be set up once. All of this
 is scriptable, and the bundled skill has a copy-paste recipe
 (`museletter skill install`, then see `recipes/aws-ses-setup.md`).
 
@@ -132,7 +132,7 @@ is scriptable, and the bundled skill has a copy-paste recipe
 2. **Add a DMARC record.** Gmail and Yahoo require one for bulk senders. A
    minimal TXT record on `_dmarc.example.com`: `v=DMARC1; p=none`.
 
-3. **Wire bounce/complaint events back to museletter.** Without this, bounces
+3. **Wire bounce/complaint events back to Museletter.** Without this, bounces
    are never suppressed and SES will eventually suspend your account.
 
    ```bash
@@ -146,7 +146,7 @@ is scriptable, and the bundled skill has a copy-paste recipe
      --notification-endpoint https://news.example.com/webhooks/sns
    ```
 
-   museletter auto-confirms the SNS subscription. Then set
+   Museletter auto-confirms the SNS subscription. Then set
    `MUSELETTER_SES_CONFIGURATION_SET=museletter` and
    `MUSELETTER_SNS_TOPIC_ARN=<TopicArn>` in your environment. Setting the topic
    ARN is important: it makes the webhook reject events from any other topic.
@@ -333,7 +333,7 @@ the CLI reach and authenticate). Common cases:
 
 ## Agent-first design
 
-museletter ships with a ready-made skill for Claude Code and any agent that
+Museletter ships with a ready-made skill for Claude Code and any agent that
 reads Markdown. Install it into a skills directory with:
 
 ```bash

@@ -1,4 +1,4 @@
-"""Install museletter as a per-user background service.
+"""Install Museletter as a per-user background service.
 
 macOS -> a launchd LaunchAgent (~/Library/LaunchAgents).
 Linux -> a systemd --user unit (~/.config/systemd/user).

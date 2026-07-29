@@ -8,14 +8,14 @@ import typer
 
 from . import clientconf
 
-app = typer.Typer(help="museletter: a headless, agent-first newsletter platform", no_args_is_help=True)
+app = typer.Typer(help="Museletter: a headless, agent-first newsletter platform", no_args_is_help=True)
 lists_app = typer.Typer(help="Manage lists", no_args_is_help=True)
 subs_app = typer.Typer(help="Manage subscribers", no_args_is_help=True)
 tags_app = typer.Typer(help="Manage tags", no_args_is_help=True)
 campaigns_app = typer.Typer(help="Manage campaigns", no_args_is_help=True)
 suppressions_app = typer.Typer(help="Manage the suppression list", no_args_is_help=True)
 skill_app = typer.Typer(help="Install the museletter agent skill", no_args_is_help=True)
-service_app = typer.Typer(help="Run museletter as a background service", no_args_is_help=True)
+service_app = typer.Typer(help="Run Museletter as a background service", no_args_is_help=True)
 app.add_typer(lists_app, name="lists")
 app.add_typer(subs_app, name="subs")
 app.add_typer(tags_app, name="tags")
@@ -90,7 +90,7 @@ def connect(
     api_key: str = typer.Option(None, help="admin API key (with --url)"),
     name: str = typer.Option("default", "--name", help="profile name to save under"),
 ):
-    """Connect this machine to a museletter server and save it as a profile."""
+    """Connect this machine to a Museletter server and save it as a profile."""
     if token:
         try:
             url, api_key = clientconf.decode_token(token)
@@ -108,7 +108,7 @@ def connect(
             health.raise_for_status()
             authed = client.get("/v1/lists", headers={"Authorization": f"Bearer {api_key}"})
     except httpx.HTTPError as exc:
-        typer.echo(f"could not reach a museletter server at {url}: {exc}", err=True)
+        typer.echo(f"could not reach a Museletter server at {url}: {exc}", err=True)
         raise typer.Exit(1) from exc
     if authed.status_code == 401:
         typer.echo(f"reached {url} but the API key was rejected", err=True)
@@ -174,7 +174,7 @@ def serve(
     host: str = typer.Option("127.0.0.1", help="bind address"),
     port: int = typer.Option(8000, help="bind port"),
 ):
-    """Run the museletter server."""
+    """Run the Museletter server."""
     from .app import create_app
     from .config import Settings
 
@@ -225,7 +225,7 @@ def _read_readme() -> str:
 
 @app.command()
 def docs():
-    """Print the full museletter manual (the README), for humans and agents alike."""
+    """Print the full Museletter manual (the README), for humans and agents alike."""
     text = _read_readme()
     if sys.stdout.isatty():
         import pydoc
@@ -630,7 +630,7 @@ def service_install(
     env_file: str = typer.Option(".env", "--env-file", help="env file the service loads"),
     start: bool = typer.Option(True, "--start/--no-start", help="start the service after installing"),
 ):
-    """Install museletter as a launchd (macOS) or systemd (Linux) user service."""
+    """Install Museletter as a launchd (macOS) or systemd (Linux) user service."""
     from . import service
 
     try:
@@ -643,7 +643,7 @@ def service_install(
 
 @service_app.command("uninstall")
 def service_uninstall():
-    """Stop and remove the museletter user service."""
+    """Stop and remove the Museletter user service."""
     from . import service
 
     try:
@@ -656,7 +656,7 @@ def service_uninstall():
 
 @service_app.command("status")
 def service_status():
-    """Show whether the museletter user service is installed and running."""
+    """Show whether the Museletter user service is installed and running."""
     from . import service
 
     typer.echo(service.status())

@@ -97,7 +97,7 @@ async def idempotency_middleware(request: Request, call_next):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    app = FastAPI(title="museletter", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="Museletter", version=__version__, lifespan=lifespan)
     app.state.settings = settings
 
     app.add_middleware(

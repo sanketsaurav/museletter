@@ -1,6 +1,6 @@
 # Recipe: first-time AWS SES setup
 
-Run once per museletter install. Needs the `aws` CLI with credentials for the
+Run once per Museletter install. Needs the `aws` CLI with credentials for the
 account that will send. Substitute the user's domain and server URL throughout.
 
 1. **Verify the sending domain** (creates DKIM tokens):
@@ -27,7 +27,7 @@ account that will send. Substitute the user's domain and server URL throughout.
    aws sns subscribe --topic-arn <TopicArn> --protocol https \
      --notification-endpoint https://<museletter-server>/webhooks/sns
    ```
-   museletter confirms the SNS subscription automatically. Then set
+   Museletter confirms the SNS subscription automatically. Then set
    `MUSELETTER_SES_CONFIGURATION_SET=museletter` and
    `MUSELETTER_SNS_TOPIC_ARN=<TopicArn>` on the server and restart it. Setting
    the topic ARN is important: without it the webhook trusts any validly-signed

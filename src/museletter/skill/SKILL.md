@@ -1,25 +1,29 @@
 ---
 name: museletter
-description: Operate a museletter newsletter server - manage subscribers and lists, draft and send campaigns, check delivery stats and account health. Use when the user asks to send a newsletter, announce a new post to subscribers, manage their mailing list, or check newsletter stats.
+description: Operate a Museletter newsletter server - manage subscribers and lists, draft and send campaigns, check delivery stats and account health. Use when the user asks to send a newsletter, announce a new post to subscribers, manage their mailing list, or check newsletter stats.
 ---
 
-# Operating museletter
+# Operating Museletter
 
-museletter is a headless newsletter platform. Everything is done through its CLI
+Museletter is a headless newsletter platform. Everything is done through its CLI
 (`pip install museletter`) or HTTP API. There is no web UI, by design: you are the interface.
 
 ## Setup
 
-The CLI needs to know where the server is:
+The CLI talks to a Museletter server. If one is already connected (a profile
+saved by `museletter connect`), commands just work. Otherwise connect it:
 
 ```bash
-export MUSELETTER_URL=https://news.example.com
-export MUSELETTER_API_KEY=...   # ask the user, or read from their secret store
-# or persist: museletter config --url ... --api-key ...
+museletter connect ml_...        # a connect token from the server operator
+# or explicitly:
+museletter connect --url https://news.example.com --api-key ...
+# or one-off via env (no saved profile):
+export MUSELETTER_URL=https://news.example.com MUSELETTER_API_KEY=...
 ```
 
-Every CLI command accepts `--json` for machine-readable output. The raw API is
-documented at `$MUSELETTER_URL/docs`; auth is `Authorization: Bearer $MUSELETTER_API_KEY`.
+Confirm with `museletter status`. Every command accepts `--json` for
+machine-readable output. The raw API is documented at `$MUSELETTER_URL/docs`;
+auth is `Authorization: Bearer <api key>`.
 
 ## Safety rules (non-negotiable)
 
