@@ -83,6 +83,13 @@ docker run -d --env-file .env -v museletter:/data -p 8000:8000 \
   ghcr.io/sanketsaurav/museletter:latest
 ```
 
+Or run it directly without a container (`--env-file` loads the `.env` init just
+wrote; no shell sourcing needed):
+
+```bash
+museletter serve --env-file .env
+```
+
 `museletter init` prints a **connect token**: one `ml_...` blob that encodes
 the server URL and admin API key. Copy it.
 
@@ -106,6 +113,7 @@ several servers with `--name` on connect and `--profile` on any command.
 ```bash
 museletter subs add reader@example.com --name "First Reader"
 museletter campaigns create --subject "Hello" --file issue.md
+museletter campaigns preview cmp_xxx                     # review it (or --html out.html)
 museletter campaigns test cmp_xxx --to you@example.com   # test send to yourself
 museletter campaigns send cmp_xxx --dry-run              # show the audience
 museletter campaigns send cmp_xxx                        # asks to confirm
@@ -340,6 +348,10 @@ Campaign bodies are Markdown. Personalization tokens are `{{name}}`,
 like `{{first_name|there}}`. The unsubscribe footer and postal address are added
 automatically; never write your own unsubscribe link.
 
+Preview the rendered result before sending: `campaigns preview <id>` prints the
+plain-text version, and `campaigns preview <id> --html out.html` writes the full
+HTML (self-contained, mark inlined) to open in a browser.
+
 Sending is guarded so an automated caller cannot blast the wrong thing:
 
 - `--dry-run` reports the audience size and a sample without sending.
@@ -362,6 +374,9 @@ from the current templates with sample data:
 ```bash
 museletter preview            # writes them to a temp dir and opens a browser
 ```
+
+The gallery has a light/dark toggle and an "open full page" link on each surface,
+so you can check both themes and inspect any surface on its own.
 
 The **publication name** on every surface is just the list's name, so rename it
 with `museletter lists edit <slug> --name "Field Notes"`. The **mark and accent
