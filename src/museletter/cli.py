@@ -1,6 +1,6 @@
 import json
+import os
 import re
-import shlex
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -83,6 +83,23 @@ def _table(rows: list[dict], columns: list[str]) -> str:
     header = "  ".join(c.upper().ljust(widths[c]) for c in columns)
     lines = ["  ".join(str(r.get(c, "")).ljust(widths[c]) for c in columns) for r in rows]
     return "\n".join([header, *lines])
+
+
+def _load_env_file(path: Path) -> None:
+    """Load KEY=VALUE lines from a .env into the environment without a shell, so
+    the same unquoted file that `docker --env-file` reads also works for a local
+    `serve`. Existing environment variables win; surrounding quotes are tolerated."""
+    for raw in Path(path).read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.removeprefix("export ").strip()
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
+        if key:
+            os.environ.setdefault(key, val)
 
 
 @app.command()
@@ -175,11 +192,16 @@ def status():
 def serve(
     host: str = typer.Option("127.0.0.1", help="bind address"),
     port: int = typer.Option(8000, help="bind port"),
+    env_file: Path = typer.Option(
+        None, "--env-file", help="load config from a .env first (the same file docker --env-file uses)"
+    ),
 ):
     """Run the Museletter server."""
     from .app import create_app
     from .config import Settings
 
+    if env_file:
+        _load_env_file(env_file)
     settings = Settings.from_env()
     problems = settings.missing_required()
     if problems:
@@ -851,9 +873,9 @@ def init(
         "MUSELETTER_POSTAL_ADDRESS": postal_address,
         "AWS_REGION": region,
     }
-    # Quote values so the file is safe to `source` (launchd and local runs do)
-    # and to load via systemd EnvironmentFile; shlex.quote only quotes when needed.
-    env_text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in env.items())
+    # Written unquoted so `docker --env-file` reads it correctly (it keeps quotes
+    # literally); `museletter serve --env-file` and systemd read this format too.
+    env_text = "".join(f"{k}={v}\n" for k, v in env.items())
     token = clientconf.encode_token(base_url, api_key)
 
     # Write the env file in every mode (it's the command's side effect); only the

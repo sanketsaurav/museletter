@@ -1,4 +1,5 @@
 import json
+import os
 
 import httpx
 import pytest
@@ -420,7 +421,7 @@ def test_preview_eject_copies_templates(tmp_path):
         assert (tmp_path / name).exists(), name
 
 
-def test_init_quotes_env_values_with_spaces(tmp_path):
+def test_init_writes_docker_friendly_unquoted_env(tmp_path):
     env = tmp_path / ".env"
     result = runner.invoke(
         cli_app,
@@ -441,11 +442,25 @@ def test_init_quotes_env_values_with_spaces(tmp_path):
     )
     assert result.exit_code == 0, result.output
     text = env.read_text()
-    # Values with spaces are quoted so `source .env` (and launchd/systemd) parse
-    # them as one value; plain values stay unquoted.
-    assert "MUSELETTER_FROM_NAME='Field Notes'" in text
-    assert "MUSELETTER_POSTAL_ADDRESS='1 Main St, Town'" in text
-    assert "MUSELETTER_FROM_EMAIL=a@b.c" in text
+    # Unquoted, because docker --env-file keeps quotes literally in the value.
+    assert "MUSELETTER_FROM_NAME=Field Notes" in text
+    assert "MUSELETTER_POSTAL_ADDRESS=1 Main St, Town" in text
+    assert "'" not in text and '"' not in text
+
+
+def test_load_env_file_handles_spaces_quotes_and_existing(tmp_path, monkeypatch):
+    for v in ("MUSELETTER_FROM_NAME", "MUSELETTER_POSTAL_ADDRESS", "MUSELETTER_KEPT"):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv("MUSELETTER_KEPT", "already-set")
+    env = tmp_path / ".env"
+    env.write_text(
+        "# a comment\nMUSELETTER_FROM_NAME=Field Notes\n"
+        "MUSELETTER_POSTAL_ADDRESS='1 Main St, Town'\nMUSELETTER_KEPT=from-file\n"
+    )
+    cli_mod._load_env_file(env)
+    assert os.environ["MUSELETTER_FROM_NAME"] == "Field Notes"  # spaces preserved
+    assert os.environ["MUSELETTER_POSTAL_ADDRESS"] == "1 Main St, Town"  # quotes stripped
+    assert os.environ["MUSELETTER_KEPT"] == "already-set"  # real env wins
 
 
 def test_inline_email_marks_replaces_cdn():

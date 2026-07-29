@@ -32,10 +32,11 @@ def _systemd_unit_path() -> Path:
 
 
 def _plist(host: str, port: int, env_file: str) -> str:
+    # `serve --env-file` loads the .env itself, so we exec directly with no shell
+    # (shell-sourcing an unquoted .env would split values with spaces).
     program = _museletter_bin().split()
-    program += ["serve", "--host", host, "--port", str(port)]
-    # launchd can't read a .env; source it in a shell before exec.
-    shell_cmd = f"set -a; [ -f {env_file} ] && . {env_file}; set +a; exec " + " ".join(program)
+    program += ["serve", "--host", host, "--port", str(port), "--env-file", env_file]
+    args = "\n".join(f"    <string>{a}</string>" for a in program)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -43,9 +44,7 @@ def _plist(host: str, port: int, env_file: str) -> str:
     <key>Label</key><string>{LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>{shell_cmd}</string>
+{args}
     </array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
