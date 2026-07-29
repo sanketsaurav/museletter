@@ -392,6 +392,20 @@ def test_preview_writes_all_surfaces(tmp_path):
     assert "data:image/svg+xml" in (tmp_path / "email-issue.html").read_text()
 
 
+def test_preview_forces_light_and_dark_variants(tmp_path):
+    result = runner.invoke(cli_app, ["preview", "--no-open", "--out", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    light = (tmp_path / "email-issue.html").read_text()
+    dark = (tmp_path / "email-issue.dark.html").read_text()
+    # Each variant is forced (OS-independent): light drops the dark media block,
+    # dark promotes it to always-on so it renders even under a light system theme.
+    assert "prefers-color-scheme" not in light
+    assert "prefers-color-scheme" not in dark
+    assert "@media all" in dark
+    # The gallery ships a light/dark toggle.
+    assert '<button data-theme="dark">' in (tmp_path / "index.html").read_text()
+
+
 def test_preview_eject_copies_templates(tmp_path):
     result = runner.invoke(cli_app, ["preview", "--eject", str(tmp_path)])
     assert result.exit_code == 0

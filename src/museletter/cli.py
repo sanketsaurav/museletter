@@ -237,18 +237,72 @@ def docs():
 
 _TEMPLATE_FILES = ["email.html", "email-system.html", "page.html"]
 
-_PREVIEW_INDEX = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+_PREVIEW_INDEX = """<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Museletter surfaces</title>
-<style>:root{color-scheme:light dark}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f7;color:#1a1a1e;margin:0 auto;max-width:1000px;padding:40px}
-h1{font-size:22px;margin:0 0 6px}.sub{color:#666;margin:0 0 28px;font-size:14px}
-h2{font-size:13px;color:#888;margin:34px 0 10px;font-weight:600}
-.frame{border:1px solid #e1e1e6;border-radius:10px;overflow:hidden;background:#fff}
-iframe{width:100%;border:0;display:block;background:#fff}.email iframe{height:640px}.page iframe{height:430px}
-@media(prefers-color-scheme:dark){body{background:#0b0b0d;color:#f5f5f7}.frame{border-color:#2e2e35}h2{color:#9b9ba6}}</style>
-</head><body><h1>Museletter public surfaces</h1>
-<p class="sub">Rendered from the current templates. Toggle your system light/dark to see both modes.</p>
-$rows</body></html>"""
+<style>
+:root{--bg:#f5f5f7;--fg:#1a1a1e;--sub:#6b6b74;--h2:#8a8a92;--frame:#e1e1e6;--card:#fff}
+html[data-theme="dark"]{--bg:#0b0b0d;--fg:#f5f5f7;--sub:#9b9ba6;--h2:#9b9ba6;--frame:#2e2e35;--card:#111114}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;max-width:1000px;padding:0 40px 48px}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--bg);padding:20px 0 14px;border-bottom:1px solid var(--frame)}
+h1{font-size:20px;margin:0}.sub{color:var(--sub);margin:16px 0 0;font-size:14px}
+h2{font-size:13px;color:var(--h2);margin:32px 0 10px;font-weight:600}
+.frame{border:1px solid var(--frame);border-radius:10px;overflow:hidden;background:var(--card)}
+iframe{width:100%;border:0;display:block;background:var(--card)}.email iframe{height:640px}.page iframe{height:430px}
+.seg{display:inline-flex;flex:none;border:1px solid var(--frame);border-radius:8px;overflow:hidden}
+.seg button{appearance:none;-webkit-appearance:none;border:0;background:transparent;color:var(--sub);font:inherit;font-size:13px;padding:7px 15px;cursor:pointer}
+.seg button.on{background:var(--fg);color:var(--bg)}</style>
+</head><body>
+<div class="bar"><h1>Museletter public surfaces</h1>
+<div class="seg"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
+<p class="sub">Rendered from the current templates, forced to each mode so you can review both regardless of your system theme.</p>
+$rows
+<script>
+(function(){
+  var root=document.documentElement;
+  var btns=document.querySelectorAll('.seg button');
+  var frames=document.querySelectorAll('iframe[data-base]');
+  function apply(theme){
+    root.setAttribute('data-theme',theme);
+    btns.forEach(function(b){b.classList.toggle('on',b.getAttribute('data-theme')===theme)});
+    frames.forEach(function(f){
+      var src=f.getAttribute('data-base')+(theme==='dark'?'.dark.html':'.html');
+      if(f.getAttribute('src')!==src)f.setAttribute('src',src);
+    });
+  }
+  btns.forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-theme'))})});
+  var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+  apply(dark?'dark':'light');
+})();
+</script>
+</body></html>"""
+
+
+_DARK_MEDIA = "@media (prefers-color-scheme: dark)"
+
+
+def _theme_variants(html: str) -> tuple[str, str]:
+    """Split a rendered surface into OS-independent light and dark renderings so
+    the preview can force either mode. Dark promotes the prefers-color-scheme
+    block to always-on (@media all); light removes it. The email templates guard
+    their dark rules with !important, so forcing the block overrides the inline
+    light styles."""
+    dark = html.replace(_DARK_MEDIA, "@media all")
+    light = html
+    while (start := light.find(_DARK_MEDIA)) != -1:
+        brace = light.find("{", start)
+        if brace == -1:
+            break
+        depth, end = 0, brace
+        while end < len(light):
+            if light[end] == "{":
+                depth += 1
+            elif light[end] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            end += 1
+        light = light[:start] + light[end + 1 :]
+    return light, dark
 
 
 @app.command()
@@ -371,15 +425,17 @@ def preview(
     out_dir = Path(out) if out else Path(tempfile.mkdtemp(prefix="museletter-preview-"))
     out_dir.mkdir(parents=True, exist_ok=True)
     for slug, _, html in surfaces:
-        (out_dir / f"{slug}.html").write_text(html, encoding="utf-8")
+        light, dark = _theme_variants(html)
+        (out_dir / f"{slug}.html").write_text(light, encoding="utf-8")
+        (out_dir / f"{slug}.dark.html").write_text(dark, encoding="utf-8")
     rows = "".join(
         f'<h2>{title}</h2><div class="frame {"email" if slug.startswith("email") else "page"}">'
-        f'<iframe src="{slug}.html"></iframe></div>'
+        f'<iframe data-base="{slug}" title="{title}"></iframe></div>'
         for slug, title, _ in surfaces
     )
     index = out_dir / "index.html"
     index.write_text(_PREVIEW_INDEX.replace("$rows", rows), encoding="utf-8")
-    typer.echo(f"wrote {len(surfaces)} previews to {out_dir}")
+    typer.echo(f"wrote {len(surfaces)} surfaces (light + dark) to {out_dir}")
     if open_browser:
         webbrowser.open(index.as_uri())
 
