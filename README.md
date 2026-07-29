@@ -331,9 +331,10 @@ widget's `cf-turnstile-response` token is verified on every submit.
 
 ## Sending a campaign
 
-Campaign bodies are Markdown. Personalization tokens are `{{name}}` and
-`{{email}}`, with fallbacks like `{{name|there}}`. The unsubscribe footer and
-postal address are added automatically; never write your own unsubscribe link.
+Campaign bodies are Markdown. Personalization tokens are `{{name}}`,
+`{{first_name}}` (the first word of the name), and `{{email}}`, with fallbacks
+like `{{first_name|there}}`. The unsubscribe footer and postal address are added
+automatically; never write your own unsubscribe link.
 
 Sending is guarded so an automated caller cannot blast the wrong thing:
 

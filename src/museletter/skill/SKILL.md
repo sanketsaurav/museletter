@@ -49,9 +49,10 @@ museletter campaigns send cmp_xxx --yes # after the user approves
 museletter campaigns stats cmp_xxx      # poll until pending reaches 0
 ```
 
-Campaign bodies are Markdown. Personalization tokens: `{{name}}` and `{{email}}`,
-with fallbacks like `{{name|there}}`. An unsubscribe footer is added automatically -
-never add your own unsubscribe link.
+Campaign bodies are Markdown. Personalization tokens: `{{name}}`,
+`{{first_name}}` (first word of the name), and `{{email}}`, with fallbacks like
+`{{first_name|there}}`. An unsubscribe footer is added automatically - never add
+your own unsubscribe link.
 
 Audience targeting: `--list <slug>` picks the list (default list slug: `default`);
 `--tag <tag>` restricts to tagged subscribers.

@@ -34,6 +34,13 @@ def test_personalize_fallbacks_and_escaping():
     assert personalize("Hi {{name}}", "<b>x</b>", "a@b.c", escape=True) == "Hi &lt;b&gt;x&lt;/b&gt;"
 
 
+def test_personalize_first_name():
+    assert personalize("Hi {{first_name}},", "Ada Lovelace", "a@b.c") == "Hi Ada,"
+    assert personalize("Hi {{first_name}},", "Ada", "a@b.c") == "Hi Ada,"  # single-word name
+    assert personalize("Hi {{first_name|there}},", "", "a@b.c") == "Hi there,"  # empty -> fallback
+    assert personalize("{{name}} = {{first_name}}", "Ada Lovelace", "a@b.c") == "Ada Lovelace = Ada"
+
+
 def test_build_email_renders_markdown_footer_and_unsub():
     subject, html, text = build_email(
         "Hello {{name|friend}}",

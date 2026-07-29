@@ -3,7 +3,7 @@
 Goal: the user published a post and wants subscribers notified.
 
 1. Fetch the post (URL or file the user points you at). Write a short issue in
-   Markdown: a greeting (`Hi {{name|there}},`), 2-3 sentence summary in the
+   Markdown: a greeting (`Hi {{first_name|there}},`), 2-3 sentence summary in the
    author's voice, and a link to the full post. Keep it under ~300 words unless
    the user wants the full post inlined.
 2. Save it to a file, then:

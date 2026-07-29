@@ -9,8 +9,8 @@ import mistune
 
 _markdown = mistune.create_markdown(plugins=["strikethrough", "table", "url"], escape=False)
 
-# {{name}}, {{email}}, with optional fallback: {{name|there}}
-_TOKEN_RE = re.compile(r"\{\{\s*(name|email)\s*(?:\|([^}]*?)\s*)?\}\}")
+# {{name}}, {{first_name}}, {{email}}, with optional fallback: {{first_name|there}}
+_TOKEN_RE = re.compile(r"\{\{\s*(first_name|name|email)\s*(?:\|([^}]*?)\s*)?\}\}")
 
 
 def load_template(name: str) -> Template:
@@ -25,7 +25,8 @@ _EMAIL_TEMPLATE = load_template("email.html")
 
 
 def personalize(text: str, name: str, email: str, escape: bool = False) -> str:
-    values = {"name": name, "email": email}
+    parts = name.split()
+    values = {"name": name, "first_name": parts[0] if parts else "", "email": email}
 
     def sub(m: re.Match) -> str:
         value = values.get(m.group(1), "") or (m.group(2) or "")
