@@ -420,7 +420,6 @@ def preview(
                 "<p>Confirmation links last 48 hours and work once. Sign up again from the website to get a fresh one.</p>",
                 variant="muted",
                 list_name="Museletter",
-                code="link_invalid",
             ),
         ),
     ]

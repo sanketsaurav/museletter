@@ -40,20 +40,27 @@ _SYSTEM_TEMPLATE = load_template("email-system.html")
 
 
 def _footer_html(list_name: str, postal_address: str, unsubscribe_url: str = "") -> str:
-    identity = " · ".join(html_mod.escape(p) for p in (list_name, postal_address) if p)
-    actions = []
+    # Identity and the unsubscribe link share one line; the attribution sits on
+    # its own line below, set apart with space above so it reads as separate.
+    line = [html_mod.escape(p) for p in (list_name, postal_address) if p]
     if unsubscribe_url:
-        actions.append(f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#74747F;">Unsubscribe</a>')
-    actions.append(
+        line.append(f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#74747F;">Unsubscribe</a>')
+    sent = (
         'Sent with <a href="https://github.com/sanketsaurav/museletter" style="color:#74747F;">Museletter</a>'
     )
-    return (identity + "<br>" if identity else "") + " · ".join(actions)
+    top = " · ".join(line)
+    return f'{top}<div style="padding-top:12px;">{sent}</div>' if top else sent
 
 
 def _footer_text(list_name: str, postal_address: str, unsubscribe_url: str = "") -> list[str]:
-    lines = [p for p in (list_name, postal_address) if p]
+    lines = []
+    identity = " · ".join(p for p in (list_name, postal_address) if p)
+    if identity:
+        lines.append(identity)
     if unsubscribe_url:
         lines.append(f"Unsubscribe: {unsubscribe_url}")
+    if lines:
+        lines.append("")  # blank line so the attribution reads as separate
     lines.append("Sent with Museletter")
     return lines
 

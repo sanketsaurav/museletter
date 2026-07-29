@@ -73,15 +73,13 @@ def _page(
     variant: str = "accent",
     list_name: str = "Museletter",
     action: str = "",
-    code: str = "",
 ) -> HTMLResponse:
     """Render a public page in the split-panel brand layout. `body` and `action`
-    are trusted HTML built by the caller; `heading`, `list_name`, `code` are escaped."""
-    code_html = f'<div class="panel-code">{html_mod.escape(code)}</div>' if code else ""
+    are trusted HTML built by the caller; `heading` and `list_name` are escaped."""
     action_html = f'<div class="actions">{action}</div>' if action else ""
     content = (
         f'<div class="panel {variant}">{_MARK_SVG}'
-        f'<div><div class="panel-name">{html_mod.escape(list_name)}</div>{code_html}</div></div>'
+        f'<div><div class="panel-name">{html_mod.escape(list_name)}</div></div></div>'
         f'<div class="content"><div><h1>{html_mod.escape(heading)}</h1>{body}{action_html}</div>'
         '<div class="foot">Powered by '
         '<a href="https://github.com/sanketsaurav/museletter" style="text-decoration:underline;">Museletter</a>'
@@ -222,14 +220,14 @@ async def confirm(request: Request, token: str):
     invalid = ("Invalid link", "<p>This confirmation link is not valid.</p>")
     subscriber_id = verify_token(request.app.state.secret, token, "confirm")
     if subscriber_id is None:
-        return _page(*invalid, variant="muted", code="link_invalid")
+        return _page(*invalid, variant="muted")
     async with db.execute(
         "SELECT s.*, l.name AS list_name FROM subscribers s JOIN lists l ON l.id = s.list_id WHERE s.id = ?",
         (subscriber_id,),
     ) as cur:
         row = await cur.fetchone()
     if row is None:
-        return _page(*invalid, variant="muted", code="link_invalid")
+        return _page(*invalid, variant="muted")
     lst = row["list_name"]
     escaped = html_mod.escape(lst)
     # Only a pending double-opt-in may be confirmed. A confirm link is a GET
@@ -276,9 +274,7 @@ async def unsubscribe_page(request: Request, token: str):
     # email, and a destructive GET would silently unsubscribe real readers.
     subscriber_id = verify_token(request.app.state.secret, token, "unsubscribe")
     if subscriber_id is None:
-        return _page(
-            "Invalid link", "<p>This unsubscribe link is not valid.</p>", variant="muted", code="link_invalid"
-        )
+        return _page("Invalid link", "<p>This unsubscribe link is not valid.</p>", variant="muted")
     list_name = await _subscriber_list_name(request.app.state.db, subscriber_id)
     action = (
         f'<form method="post" action="/unsubscribe/{html_mod.escape(token)}">'
@@ -299,9 +295,7 @@ async def unsubscribe(request: Request, token: str):
     db = request.app.state.db
     subscriber_id = verify_token(request.app.state.secret, token, "unsubscribe")
     if subscriber_id is None:
-        return _page(
-            "Invalid link", "<p>This unsubscribe link is not valid.</p>", variant="muted", code="link_invalid"
-        )
+        return _page("Invalid link", "<p>This unsubscribe link is not valid.</p>", variant="muted")
     list_name = await _subscriber_list_name(db, subscriber_id)
     async with db.execute("SELECT * FROM subscribers WHERE id = ?", (subscriber_id,)) as cur:
         row = await cur.fetchone()
