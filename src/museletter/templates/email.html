@@ -6,49 +6,57 @@
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
 <title>$subject</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* Head styles are honored by Apple Mail and most modern clients and ignored by
-   Outlook Windows, which falls back to the inline styles below. */
-.ml-content a { color: #1a1a1a; text-decoration: underline; text-underline-offset: 2px; }
-.ml-content h1, .ml-content h2, .ml-content h3 { line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
-.ml-content h1 { font-size: 23px; }
-.ml-content h2 { font-size: 19px; }
-.ml-content h3 { font-size: 16px; }
+/* Head styles are honored by Apple Mail and most modern clients; Outlook Windows
+   ignores them and falls back to the inline styles below. Web fonts load in
+   Apple Mail and degrade to the Georgia/system fallbacks elsewhere. */
+.ml-content { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; }
+.ml-content a { color: #0F7A6B; text-decoration: underline; text-underline-offset: 2px; }
+.ml-content h1, .ml-content h2, .ml-content h3 { font-family: 'Source Serif 4', Georgia, serif; font-weight: 600; line-height: 1.2; letter-spacing: -0.015em; margin: 1.3em 0 0.45em; color: #1A1A1E; }
+.ml-content h1 { font-size: 28px; }
+.ml-content h2 { font-size: 23px; }
+.ml-content h3 { font-size: 19px; }
 .ml-content p { margin: 0 0 1em; }
-.ml-content img { max-width: 100%; height: auto; border-radius: 6px; }
-.ml-content blockquote { margin: 1em 0; padding: 2px 0 2px 16px; border-left: 3px solid #e2e2df; color: #555; }
-.ml-content hr { border: none; border-top: 1px solid #ececea; margin: 2em 0; }
-.ml-content code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: #f1f1ef; padding: 2px 5px; border-radius: 4px; }
-.ml-content pre { background: #f1f1ef; padding: 14px 16px; border-radius: 6px; overflow-x: auto; }
+.ml-content img { max-width: 100%; height: auto; }
+.ml-content blockquote { margin: 1.2em 0; padding: 2px 0 2px 18px; border-left: 2px solid #C9C9D1; color: #57575F; font-style: italic; }
+.ml-content hr { border: none; border-top: 1px solid #E1E1E6; margin: 2em 0; }
+.ml-content code { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 0.85em; background: #ECECEF; padding: 2px 6px; border-radius: 4px; }
+.ml-content pre { font-family: 'IBM Plex Mono', monospace; background: #ECECEF; padding: 14px 16px; border-radius: 6px; overflow-x: auto; }
 .ml-content pre code { background: none; padding: 0; }
 @media (prefers-color-scheme: dark) {
-  .ml-bg { background: #0f0f10 !important; }
-  .ml-card { background: #1b1b1d !important; }
-  .ml-masthead { color: #9a9a96 !important; border-bottom-color: #2c2c2e !important; }
-  .ml-content { color: #e8e8e6 !important; }
-  .ml-content a { color: #ffffff !important; }
-  .ml-content blockquote { border-left-color: #3a3a3c !important; color: #a9a9a6 !important; }
-  .ml-content hr { border-top-color: #2c2c2e !important; }
-  .ml-content code, .ml-content pre { background: #2a2a2c !important; }
-  .ml-footer { color: #86867f !important; }
-  .ml-footer a { color: #86867f !important; }
+  .ml-bg { background: #0B0B0D !important; }
+  .ml-rule { border-top-color: #2E2E35 !important; }
+  .ml-name { color: #F5F5F7 !important; }
+  .ml-content { color: #C9C9D1 !important; }
+  .ml-content h1, .ml-content h2, .ml-content h3 { color: #F5F5F7 !important; }
+  .ml-content a { color: #5FC9B6 !important; }
+  .ml-content blockquote { border-left-color: #3E3E45 !important; color: #9B9BA6 !important; }
+  .ml-content hr { border-top-color: #2E2E35 !important; }
+  .ml-content code, .ml-content pre { background: #2A2A30 !important; }
+  .ml-footer, .ml-footer a { color: #9B9BA6 !important; }
+  .ml-mark-light { display: none !important; }
+  .ml-mark-dark { display: inline-block !important; }
 }
 </style>
 </head>
-<body class="ml-bg" style="margin:0;padding:0;background-color:#f6f6f4;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="ml-bg" style="background-color:#f6f6f4;">
-<tr><td align="center" style="padding:24px 12px;">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" class="ml-card" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:10px;">
-<tr><td class="ml-masthead" style="padding:26px 40px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#9a9a96;border-bottom:1px solid #f0f0ee;padding-bottom:20px;">
-$header
+<body class="ml-bg" style="margin:0;padding:0;background-color:#FFFFFF;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="ml-bg" style="background-color:#FFFFFF;">
+<tr><td align="center" style="padding:40px 24px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+<tr><td style="padding:0 0 22px;font-family:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<img class="ml-mark-light" src="https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email/mark-light.png" width="17" height="17" alt="" style="border:0;vertical-align:middle;">
+<img class="ml-mark-dark" src="https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email/mark-dark.png" width="17" height="17" alt="" style="border:0;vertical-align:middle;display:none;">
+<span class="ml-name" style="font-size:15px;font-weight:700;letter-spacing:-0.04em;color:#1A1A1E;vertical-align:middle;margin-left:8px;">$header</span>
 </td></tr>
-<tr><td class="ml-content" style="padding:32px 40px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.65;color:#1a1a1a;">
+<tr><td class="ml-content" style="padding:8px 0 34px;font-family:'Source Serif 4',Georgia,'Times New Roman',serif;font-size:18px;line-height:1.65;color:#2A2A30;">
 $content
 </td></tr>
-</table>
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-<tr><td class="ml-footer" style="padding:20px 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#8a8a86;text-align:center;">
+<tr><td class="ml-rule" style="border-top:1px solid #E1E1E6;padding:20px 0 0;">
+<div class="ml-footer" style="font-family:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#74747F;">
 $footer
+</div>
 </td></tr>
 </table>
 </td></tr>

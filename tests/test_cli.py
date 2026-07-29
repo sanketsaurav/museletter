@@ -321,7 +321,7 @@ def test_print_token_roundtrips(monkeypatch):
 def test_docs_prints_readme():
     result = runner.invoke(cli_app, ["docs"])
     assert result.exit_code == 0
-    assert "# Museletter" in result.output
+    assert "agent-first newsletter platform" in result.output
     assert "AWS SES setup" in result.output  # a section an agent needs
     assert "—" not in result.output and "–" not in result.output
 

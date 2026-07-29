@@ -1,8 +1,17 @@
-# Museletter
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/museletter-lockup-dark.svg">
+    <img alt="Museletter" src="assets/museletter-lockup.svg" width="200">
+  </picture>
+</p>
 
-A headless, agent-first newsletter platform. One container, one SQLite
-database, Amazon SES. There is no web UI: you (or your AI agent) operate it
-through a CLI and an HTTP API.
+<p align="center">
+  A headless, agent-first newsletter platform.<br>
+  One container, one SQLite database, Amazon SES. No web UI: you (or your AI
+  agent) operate it through a CLI and an HTTP API.
+</p>
+
+---
 
 ## Why
 

@@ -77,17 +77,17 @@ def personalize_email(
     content_html = personalize(body.base_html, name, email, escape=True)
     content_text = personalize(body.base_text, name, email)
 
-    footer_parts = []
-    if list_name:
-        footer_parts.append(html_mod.escape(list_name))
-    if postal_address:
-        footer_parts.append(html_mod.escape(postal_address))
+    # Footer: identity line (list + postal address), then a rule-thin line of
+    # actions. "Sent with Museletter" is the platform attribution.
+    identity = " · ".join(html_mod.escape(p) for p in (list_name, postal_address) if p)
+    actions = []
     if unsubscribe_url:
-        footer_parts.append(
-            f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#8a8a86;">Unsubscribe</a>'
-        )
-    footer_html = "<br>".join(footer_parts)
-    header_html = html_mod.escape(list_name) if list_name else ""
+        actions.append(f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#74747F;">Unsubscribe</a>')
+    actions.append(
+        'Sent with <a href="https://github.com/sanketsaurav/museletter" style="color:#74747F;">Museletter</a>'
+    )
+    footer_html = (identity + "<br>" if identity else "") + " · ".join(actions)
+    header_html = html_mod.escape(list_name) if list_name else "Newsletter"
 
     html = _EMAIL_TEMPLATE.substitute(
         subject=html_mod.escape(subject),
@@ -96,13 +96,10 @@ def personalize_email(
         footer=footer_html,
     )
 
-    text_footer = ["—"]
-    if list_name:
-        text_footer.append(list_name)
-    if postal_address:
-        text_footer.append(postal_address)
+    text_footer = [p for p in (list_name, postal_address) if p]
     if unsubscribe_url:
         text_footer.append(f"Unsubscribe: {unsubscribe_url}")
+    text_footer.append("Sent with Museletter")
     text = content_text + "\n\n" + "\n".join(text_footer) + "\n"
 
     return subject, html, text
