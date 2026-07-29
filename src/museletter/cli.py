@@ -245,7 +245,9 @@ html[data-theme="dark"]{--bg:#0b0b0d;--fg:#f5f5f7;--sub:#9b9ba6;--h2:#9b9ba6;--f
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;max-width:1000px;padding:0 40px 48px}
 .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--bg);padding:20px 0 14px;border-bottom:1px solid var(--frame)}
 h1{font-size:20px;margin:0}.sub{color:var(--sub);margin:16px 0 0;font-size:14px}
-h2{font-size:13px;color:var(--h2);margin:32px 0 10px;font-weight:600}
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:32px 0 10px}
+h2{font-size:13px;color:var(--h2);margin:0;font-weight:600}
+.open{color:var(--sub);font-size:12px;text-decoration:none;white-space:nowrap}.open:hover{color:var(--fg)}
 .frame{border:1px solid var(--frame);border-radius:10px;overflow:hidden;background:var(--card)}
 iframe{width:100%;border:0;display:block;background:var(--card)}.email iframe{height:640px}.page iframe{height:430px}
 .seg{display:inline-flex;flex:none;border:1px solid var(--frame);border-radius:8px;overflow:hidden}
@@ -261,13 +263,13 @@ $rows
   var root=document.documentElement;
   var btns=document.querySelectorAll('.seg button');
   var frames=document.querySelectorAll('iframe[data-base]');
+  var links=document.querySelectorAll('a.open[data-base]');
+  function file(el,theme){return el.getAttribute('data-base')+(theme==='dark'?'.dark.html':'.html')}
   function apply(theme){
     root.setAttribute('data-theme',theme);
     btns.forEach(function(b){b.classList.toggle('on',b.getAttribute('data-theme')===theme)});
-    frames.forEach(function(f){
-      var src=f.getAttribute('data-base')+(theme==='dark'?'.dark.html':'.html');
-      if(f.getAttribute('src')!==src)f.setAttribute('src',src);
-    });
+    frames.forEach(function(f){var s=file(f,theme);if(f.getAttribute('src')!==s)f.setAttribute('src',s)});
+    links.forEach(function(a){a.setAttribute('href',file(a,theme))});
   }
   btns.forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-theme'))})});
   var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -429,7 +431,9 @@ def preview(
         (out_dir / f"{slug}.html").write_text(light, encoding="utf-8")
         (out_dir / f"{slug}.dark.html").write_text(dark, encoding="utf-8")
     rows = "".join(
-        f'<h2>{title}</h2><div class="frame {"email" if slug.startswith("email") else "page"}">'
+        f'<div class="head"><h2>{title}</h2>'
+        f'<a class="open" data-base="{slug}" target="_blank" rel="noopener">open full page &#8599;</a></div>'
+        f'<div class="frame {"email" if slug.startswith("email") else "page"}">'
         f'<iframe data-base="{slug}" title="{title}"></iframe></div>'
         for slug, title, _ in surfaces
     )

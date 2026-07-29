@@ -402,8 +402,10 @@ def test_preview_forces_light_and_dark_variants(tmp_path):
     assert "prefers-color-scheme" not in light
     assert "prefers-color-scheme" not in dark
     assert "@media all" in dark
-    # The gallery ships a light/dark toggle.
-    assert '<button data-theme="dark">' in (tmp_path / "index.html").read_text()
+    # The gallery ships a light/dark toggle and a per-surface "open full page" link.
+    index = (tmp_path / "index.html").read_text()
+    assert '<button data-theme="dark">' in index
+    assert 'class="open" data-base="email-issue"' in index
 
 
 def test_preview_eject_copies_templates(tmp_path):
