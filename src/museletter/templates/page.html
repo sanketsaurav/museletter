@@ -5,62 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>$title</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='%230F7A6B'%3E%3Crect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(0 16 16)'/%3E%3Crect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(60 16 16)'/%3E%3Crect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(120 16 16)'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root { color-scheme: light dark; }
+:root { color-scheme: light dark; --surface:#FFFFFF; --canvas:#F5F5F7; --text:#1A1A1E; --muted:#57575F; --faint:#9B9BA6; --border:#E1E1E6; --accent:#0F7A6B; --accent-h:#0B5F53; }
+@media (prefers-color-scheme: dark) { :root { --surface:#111114; --canvas:#0B0B0D; --text:#F5F5F7; --muted:#9B9BA6; --faint:#74747F; --border:#2E2E35; --accent:#5FC9B6; --accent-h:#8ADCCC; } }
 * { box-sizing: border-box; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: #f6f6f4;
-  color: #1a1a1a;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  margin: 0;
-  padding: 24px;
-  -webkit-font-smoothing: antialiased;
-}
-main {
-  background: #ffffff;
-  border-radius: 14px;
-  padding: 44px 40px;
-  max-width: 440px;
-  width: 100%;
-  text-align: center;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 12px 32px rgba(0,0,0,0.06);
-}
-h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 10px; }
-p { margin: 0; color: #6b6b66; line-height: 1.6; font-size: 15px; }
-form { margin-top: 24px; }
-button {
-  font: inherit;
-  font-size: 15px;
-  font-weight: 500;
-  padding: 11px 26px;
-  border: 0;
-  border-radius: 8px;
-  background: #1a1a1a;
-  color: #fff;
-  cursor: pointer;
-  transition: transform 0.04s ease, opacity 0.15s ease;
-}
-button:hover { opacity: 0.88; }
-button:active { transform: translateY(1px); }
-button:focus-visible { outline: 2px solid #1a1a1a; outline-offset: 3px; }
-a { color: inherit; text-underline-offset: 2px; }
-@media (prefers-color-scheme: dark) {
-  body { background: #0f0f10; color: #e8e8e6; }
-  main { background: #1b1b1d; box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px rgba(0,0,0,0.5); }
-  p { color: #a0a09a; }
-  button { background: #ffffff; color: #1a1a1a; }
-  button:focus-visible { outline-color: #ffffff; }
-}
+body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:var(--canvas); font-family:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
+.card { width:100%; max-width:660px; border:1px solid var(--border); border-radius:14px; overflow:hidden; display:grid; grid-template-columns:38% 62%; min-height:320px; }
+@media (max-width:620px) { .card { grid-template-columns:1fr; } }
+.panel { padding:30px; display:flex; flex-direction:column; justify-content:space-between; gap:28px; }
+.mark { width:30px; height:30px; flex:none; }
+.panel-name { font-size:21px; font-weight:700; letter-spacing:-0.04em; line-height:1.2; }
+.panel-code { font-family:'IBM Plex Mono',monospace; font-size:13px; margin-top:9px; opacity:0.8; }
+.panel.accent { background:#0F7A6B; color:#FFFFFF; } .panel.accent .mark { fill:#FFFFFF; }
+.panel.gray { background:#2A2A30; color:#FFFFFF; } .panel.gray .mark { fill:#5FC9B6; }
+.panel.muted { background:var(--canvas); color:var(--text); border-right:1px solid var(--border); } .panel.muted .mark { fill:var(--accent); }
+.content { background:var(--surface); padding:38px 38px 26px; display:flex; flex-direction:column; justify-content:space-between; gap:26px; }
+.content h1 { margin:0 0 12px; font-size:27px; font-weight:600; letter-spacing:-0.024em; line-height:1.15; color:var(--text); }
+.content p { margin:0; font-size:16px; line-height:1.6; color:var(--muted); }
+.content strong { color:var(--text); font-weight:600; }
+.actions { margin-top:22px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.btn { display:inline-block; background:var(--accent); color:#FFFFFF; font-size:15px; font-weight:600; padding:12px 22px; border-radius:8px; border:0; text-decoration:none; cursor:pointer; font-family:inherit; transition:background 0.15s ease; }
+.btn:hover { background:var(--accent-h); }
+.btn-danger { background:var(--text); color:var(--surface); }
+.btn-danger:hover { background:#B3261E; color:#FFFFFF; }
+.btn:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.foot { font-size:12px; color:var(--faint); }
+.foot a { color:var(--muted); text-underline-offset:2px; }
+form { margin:0; }
 </style>
 </head>
 <body>
-<main>
-<h1>$title</h1>
-$body
+<main class="card">
+$content
 </main>
 </body>
 </html>
