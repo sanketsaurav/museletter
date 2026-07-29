@@ -27,7 +27,8 @@ running instance.
 - `app.py` - FastAPI factory; lifespan owns the DB, link-signing secret, SES
   client, and sender task; idempotency middleware for `/v1/*` mutations
 - `config.py` - env-based `Settings` (`MUSELETTER_*`); `extra` dict carries
-  test injection points (`ses`, `sns_verifier`, `disable_sender`, `skip_sns_verify`)
+  test injection points (`ses`, `sns_verifier`, `turnstile_verify`,
+  `disable_sender`, `skip_sns_verify`)
 - `db.py` - schema + helpers; the whole state is one SQLite file
 - `api/admin.py` - `/v1` bearer-auth CRUD + campaign lifecycle + doctor
 - `api/public.py` - subscribe/confirm/unsubscribe pages + SNS webhook

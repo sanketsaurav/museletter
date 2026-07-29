@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS subscribers (
     created_at TEXT NOT NULL,
     confirmed_at TEXT,
     unsubscribed_at TEXT,
+    confirmation_sent_at TEXT,
     UNIQUE (list_id, email)
 );
 CREATE INDEX IF NOT EXISTS idx_subscribers_list_status ON subscribers(list_id, status);
@@ -119,8 +120,17 @@ async def open_db(path: str) -> aiosqlite.Connection:
     await db.execute("PRAGMA foreign_keys=ON")
     await db.execute("PRAGMA busy_timeout=5000")
     await db.executescript(SCHEMA)
+    await _migrate(db)
     await db.commit()
     return db
+
+
+async def _migrate(db: aiosqlite.Connection) -> None:
+    """Add columns introduced after the initial schema to pre-existing databases."""
+    async with db.execute("PRAGMA table_info(subscribers)") as cur:
+        columns = {row["name"] for row in await cur.fetchall()}
+    if "confirmation_sent_at" not in columns:
+        await db.execute("ALTER TABLE subscribers ADD COLUMN confirmation_sent_at TEXT")
 
 
 async def get_meta(db: aiosqlite.Connection, key: str) -> str | None:

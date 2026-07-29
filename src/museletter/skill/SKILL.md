@@ -59,6 +59,7 @@ Audience targeting: `--list <slug>` picks the list (default list slug: `default`
 ## Recipes
 
 - `recipes/publish-new-issue.md` - announce a new blog post end to end
+- `recipes/connect-website.md` - wire a website's signup form to the server
 - `recipes/aws-ses-setup.md` - first-time SES + SNS wiring (run once per install)
 - `recipes/migrate-from-another-platform.md` - import from Mailchimp/Buttondown/etc.
 - `recipes/health-check.md` - periodic deliverability and list hygiene review

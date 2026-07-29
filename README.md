@@ -245,6 +245,9 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_SES_CONFIGURATION_SET` | no | configuration set for event feedback |
 | `MUSELETTER_SNS_TOPIC_ARN` | recommended | your SNS topic ARN; the webhook rejects events from any other topic |
 | `MUSELETTER_TRUST_PROXY` | no | `true` when behind a proxy, so rate limiting uses `X-Forwarded-For` not the proxy IP |
+| `MUSELETTER_PUBLIC_SUBSCRIBE` | no | `false` disables the public `/subscribe` endpoint (add subscribers via the admin API instead) |
+| `MUSELETTER_TURNSTILE_SECRET` | no | Cloudflare Turnstile secret; when set, `/subscribe` requires a valid Turnstile token |
+| `MUSELETTER_CONFIRMATION_COOLDOWN` | no | min seconds between confirmation emails to one address, default 3600 |
 | `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` (the image uses `/data/museletter.db`) |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
 
@@ -252,21 +255,79 @@ The client CLI reads its server from `~/.config/museletter/config.toml`
 (written by `museletter connect`), or from `MUSELETTER_URL` +
 `MUSELETTER_API_KEY` when set.
 
-## Subscribing readers
+## Connect your website
 
-Point your website's form at the public endpoint (no auth needed):
+There are two ways to collect subscribers, depending on whether your site has a
+backend. Both feed the same `default` list (or any list slug).
 
-```html
-<form action="https://news.example.com/subscribe/default" method="post">
-  <input type="email" name="email" required>
-  <input type="text" name="website" style="display:none">  <!-- honeypot -->
-  <button>Subscribe</button>
-</form>
+Either way, double opt-in is the default (`MUSELETTER_OPT_IN=single` to skip the
+confirmation email), and unsubscribes are one-click (RFC 8058), immediate, and
+handled for you.
+
+### If you have a backend (recommended when you can)
+
+Add subscribers server-side through the authenticated admin API, so your API
+key never touches the browser:
+
+```bash
+curl -X POST https://news.example.com/v1/lists/default/subscribers \
+  -H "Authorization: Bearer $MUSELETTER_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"email":"reader@example.com","name":"Reader","status":"unconfirmed"}'
 ```
 
-JSON bodies work too. Double opt-in is the default; set
-`MUSELETTER_OPT_IN=single` to skip the confirmation email. Unsubscribes are
-one-click (RFC 8058) and take effect immediately, even mid-campaign.
+Use `status:"unconfirmed"` to trigger the double opt-in email, or `"active"` to
+add them directly (only for people who genuinely opted in). Since you are not
+using the public form, you can turn the public endpoint off entirely:
+
+```bash
+MUSELETTER_PUBLIC_SUBSCRIBE=false
+```
+
+### If you have a static site (no backend)
+
+Point a form at the public `/subscribe/{slug}` endpoint. CORS is open, so
+client-side JavaScript can call it directly from any domain. This keeps the
+reader on your page and shows the result inline:
+
+```html
+<form id="newsletter">
+  <input type="email" name="email" placeholder="you@example.com" required>
+  <!-- honeypot: hidden from humans; bots fill it and are silently dropped -->
+  <input type="text" name="website" tabindex="-1" autocomplete="off"
+         style="position:absolute;left:-9999px" aria-hidden="true">
+  <button type="submit">Subscribe</button>
+  <p id="newsletter-msg"></p>
+</form>
+
+<script>
+document.getElementById('newsletter').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const res = await fetch('https://news.example.com/subscribe/default', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: form.email.value, website: form.website.value }),
+  });
+  const data = await res.json();
+  document.getElementById('newsletter-msg').textContent =
+    res.ok ? data.message : (data.detail || 'Something went wrong.');
+  if (res.ok) form.reset();
+});
+</script>
+```
+
+A plain `<form action="..." method="post">` works too, but without JavaScript
+the browser navigates to the endpoint's JSON response, so the reader lands on a
+raw JSON page. Use the fetch version above for real visitors.
+
+The public endpoint is hardened against abuse: a honeypot field, a per-IP rate
+limit, a per-address cooldown so it cannot be used to flood a victim with
+confirmation emails, and a uniform response that does not reveal who is already
+subscribed. For a high-traffic or targeted form, turn on
+[Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) (free): set
+`MUSELETTER_TURNSTILE_SECRET`, add the Turnstile widget to your form, and the
+widget's `cf-turnstile-response` token is verified on every submit.
 
 ## Sending a campaign
 

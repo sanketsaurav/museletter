@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import __version__
+from . import __version__, turnstile
 from .api.public import RateLimiter
 from .config import Settings
 from .db import ensure_default_list, ensure_secret, open_db, utcnow
@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
         settings.aws_region, settings.ses_configuration_set
     )
     app.state.sns_verifier = settings.extra.get("sns_verifier") or SNSVerifier()
+    app.state.turnstile_verify = settings.extra.get("turnstile_verify") or turnstile.verify
     app.state.rate_limiter = RateLimiter()
     app.state.sender = SenderLoop(app)
     sender_task = None

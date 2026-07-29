@@ -16,6 +16,9 @@ class Settings:
     ses_configuration_set: str = ""
     sns_topic_arn: str = ""  # if set, only SNS events from this topic are accepted
     trust_proxy: bool = False  # read X-Forwarded-For for the client IP (set behind a proxy)
+    public_subscribe: bool = True  # expose POST /subscribe/{slug}; disable if adding via the admin API
+    turnstile_secret: str = ""  # if set, /subscribe requires a valid Cloudflare Turnstile token
+    confirmation_cooldown: float = 3600.0  # min seconds between confirmation emails to one address
     secret: str = ""  # HMAC key for public links; auto-generated into the DB if empty
     extra: dict = field(default_factory=dict)
 
@@ -35,6 +38,10 @@ class Settings:
             ses_configuration_set=env.get("MUSELETTER_SES_CONFIGURATION_SET", ""),
             sns_topic_arn=env.get("MUSELETTER_SNS_TOPIC_ARN", ""),
             trust_proxy=env.get("MUSELETTER_TRUST_PROXY", "").lower() in ("1", "true", "yes"),
+            public_subscribe=env.get("MUSELETTER_PUBLIC_SUBSCRIBE", "true").lower()
+            not in ("0", "false", "no"),
+            turnstile_secret=env.get("MUSELETTER_TURNSTILE_SECRET", ""),
+            confirmation_cooldown=float(env.get("MUSELETTER_CONFIRMATION_COOLDOWN", "3600")),
             secret=env.get("MUSELETTER_SECRET", ""),
         )
 

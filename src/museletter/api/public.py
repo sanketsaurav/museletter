@@ -1,6 +1,7 @@
 import html as html_mod
 import json
 import time
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -54,6 +55,14 @@ def _page(title: str, message: str) -> HTMLResponse:
     return HTMLResponse(_PAGE_TEMPLATE.substitute(title=html_mod.escape(title), body=message))
 
 
+def _seconds_since(iso: str) -> float:
+    try:
+        then = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return float("inf")
+    return (datetime.now(UTC) - then).total_seconds()
+
+
 async def _send_confirmation_email(request: Request, lst, subscriber_id: str, email: str) -> None:
     settings = request.app.state.settings
     secret = request.app.state.secret
@@ -79,6 +88,10 @@ async def subscribe(request: Request, slug: str):
     db = request.app.state.db
     settings = request.app.state.settings
 
+    if not settings.public_subscribe:
+        # Operator adds subscribers via the authenticated admin API; hide this route.
+        raise HTTPException(status_code=404, detail="not found")
+
     if not request.app.state.rate_limiter.allow(client_ip(request)):
         raise HTTPException(status_code=429, detail="too many requests; try again in a minute")
 
@@ -103,16 +116,26 @@ async def subscribe(request: Request, slug: str):
     if not valid_email(email):
         raise HTTPException(status_code=422, detail="a valid email is required")
 
-    pending = {"status": "pending_confirmation", "message": "Check your inbox to confirm your subscription."}
-    subscribed = {"status": "subscribed", "message": f"You're subscribed to {lst['name']}."}
+    if settings.turnstile_secret:
+        token = str(data.get("cf-turnstile-response") or data.get("turnstile_token") or "")
+        if not await request.app.state.turnstile_verify(settings.turnstile_secret, token, client_ip(request)):
+            raise HTTPException(status_code=403, detail="human verification failed; please try again")
 
-    # Bots fill the hidden field; suppressed addresses must not be resurrected
-    # by form spam. Both get an indistinguishable success response.
+    # One response for every success path, so an attacker cannot probe whether an
+    # address is already on the list.
+    ok = (
+        {"status": "pending_confirmation", "message": "Check your inbox to confirm your subscription."}
+        if settings.opt_in == "double"
+        else {"status": "subscribed", "message": "You're subscribed."}
+    )
+
+    # Bots fill the hidden field; suppressed addresses must not be resurrected by
+    # form spam. Both look identical to a real signup from the outside.
     if honeypot:
-        return JSONResponse(pending if settings.opt_in == "double" else subscribed)
+        return JSONResponse(ok)
     async with db.execute("SELECT 1 FROM suppressions WHERE email = ?", (email,)) as cur:
         if await cur.fetchone():
-            return JSONResponse(pending if settings.opt_in == "double" else subscribed)
+            return JSONResponse(ok)
 
     async with db.execute(
         "SELECT * FROM subscribers WHERE list_id = ? AND email = ?", (lst["id"], email)
@@ -120,9 +143,7 @@ async def subscribe(request: Request, slug: str):
         existing = await cur.fetchone()
 
     if existing and existing["status"] == "active":
-        return JSONResponse(
-            {"status": "already_subscribed", "message": f"You're already subscribed to {lst['name']}."}
-        )
+        return JSONResponse(ok)
 
     if existing:
         subscriber_id = existing["id"]
@@ -146,7 +167,14 @@ async def subscribe(request: Request, slug: str):
                 (utcnow(), subscriber_id),
             )
             await db.commit()
-        return JSONResponse(subscribed)
+        return JSONResponse(ok)
+
+    # Per-address cooldown: never send more than one confirmation email to an
+    # address within the window, so distributed subscription-bombing of a victim
+    # cannot make this instance flood their inbox (per-IP limits do not stop it).
+    last_sent = existing["confirmation_sent_at"] if existing else None
+    if last_sent and _seconds_since(last_sent) < settings.confirmation_cooldown:
+        return JSONResponse(ok)
 
     try:
         await _send_confirmation_email(request, lst, subscriber_id, email)
@@ -154,7 +182,11 @@ async def subscribe(request: Request, slug: str):
         raise HTTPException(
             status_code=502, detail="could not send the confirmation email; try again later"
         ) from exc
-    return JSONResponse(pending)
+    await db.execute(
+        "UPDATE subscribers SET confirmation_sent_at = ? WHERE id = ?", (utcnow(), subscriber_id)
+    )
+    await db.commit()
+    return JSONResponse(ok)
 
 
 @router.get("/confirm/{token}")
