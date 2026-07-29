@@ -87,9 +87,13 @@ def personalize_email(
             f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#8a8a86;">Unsubscribe</a>'
         )
     footer_html = "<br>".join(footer_parts)
+    header_html = html_mod.escape(list_name) if list_name else ""
 
     html = _EMAIL_TEMPLATE.substitute(
-        subject=html_mod.escape(subject), content=content_html, footer=footer_html
+        subject=html_mod.escape(subject),
+        header=header_html,
+        content=content_html,
+        footer=footer_html,
     )
 
     text_footer = ["—"]
