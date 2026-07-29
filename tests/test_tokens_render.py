@@ -1,5 +1,12 @@
 import museletter.render as render_mod
-from museletter.render import build_email, personalize, personalize_email, render_campaign
+from museletter.render import (
+    build_email,
+    personalize,
+    personalize_email,
+    render_campaign,
+    render_confirmation,
+    template_source,
+)
 from museletter.tokens import make_token, verify_token
 
 SECRET = "s3cret"
@@ -93,3 +100,26 @@ def test_build_email_matches_split_render_path():
     combined = build_email("Hi {{name}}", "Body {{name}}", **args)
     split = personalize_email(render_campaign("Hi {{name}}", "Body {{name}}"), **args)
     assert combined == split
+
+
+def test_render_confirmation_is_sans_with_button_after_body():
+    subject, html, text = render_confirmation(
+        list_name="Field Notes", confirm_url="https://x/confirm/tok", postal_address="1 Main St"
+    )
+    assert subject == "Confirm your subscription to Field Notes"
+    # A system email: sans-serif, never the issue serif.
+    assert "Source Serif" not in html
+    assert "Public Sans" in html
+    # The CTA is a button carrying the confirm link, placed after the body copy.
+    assert 'class="ml-btn"' in html and "https://x/confirm/tok" in html
+    assert html.index("Confirm below") < html.index('class="ml-btn"')
+    # Plaintext keeps the confirm URL.
+    assert "https://x/confirm/tok" in text
+
+
+def test_template_override(monkeypatch, tmp_path):
+    (tmp_path / "email.html").write_text("OVERRIDDEN $subject", encoding="utf-8")
+    monkeypatch.setenv("MUSELETTER_TEMPLATE_DIR", str(tmp_path))
+    assert template_source("email.html").startswith("OVERRIDDEN")
+    # A file not present in the override dir falls back to the packaged default.
+    assert ".panel" in template_source("page.html")

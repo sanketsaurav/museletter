@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..db import new_id, utcnow
-from ..render import build_email, load_template
+from ..render import load_template, render_confirmation
 from ..sns import is_amazon_sns_url, parse_ses_events
 from ..tokens import make_token, verify_token
 from .common import normalize_email, valid_email
@@ -102,16 +102,8 @@ async def _send_confirmation_email(request: Request, lst, subscriber_id: str, em
     settings = request.app.state.settings
     secret = request.app.state.secret
     confirm_url = f"{settings.base_url}/confirm/{make_token(secret, 'confirm', subscriber_id)}"
-    markdown = (
-        f"Someone (hopefully you) asked to subscribe this address to **{lst['name']}**.\n\n"
-        f"[Confirm your subscription]({confirm_url})\n\n"
-        f"If this wasn't you, you can safely ignore this email."
-    )
-    subject, html, text = build_email(
-        f"Confirm your subscription to {lst['name']}",
-        markdown,
-        list_name=lst["name"],
-        postal_address=settings.postal_address,
+    subject, html, text = render_confirmation(
+        list_name=lst["name"], confirm_url=confirm_url, postal_address=settings.postal_address
     )
     await request.app.state.ses.send_email(
         email, subject, html, text, from_email=settings.from_email, from_name=settings.from_name

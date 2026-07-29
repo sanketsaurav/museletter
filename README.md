@@ -251,6 +251,7 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_PUBLIC_SUBSCRIBE` | no | `false` disables the public `/subscribe` endpoint (add subscribers via the admin API instead) |
 | `MUSELETTER_TURNSTILE_SECRET` | no | Cloudflare Turnstile secret; when set, `/subscribe` requires a valid Turnstile token |
 | `MUSELETTER_CONFIRMATION_COOLDOWN` | no | min seconds between confirmation emails to one address, default 3600 |
+| `MUSELETTER_TEMPLATE_DIR` | no | directory of custom email/page templates to use instead of the built-ins |
 | `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` (the image uses `/data/museletter.db`) |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
 
@@ -351,6 +352,31 @@ Target a subset with tags: `campaigns create ... --tag vip` sends only to
 subscribers carrying that tag. Pick a list with `--list <slug>` (a `default`
 list exists out of the box).
 
+## Look and feel
+
+Every reader-facing surface is small and self-contained: two emails (the issue
+and the double opt-in confirmation) and the public pages (subscribed,
+unsubscribe, invalid link, and friends). Preview them all at once, rendered
+from the current templates with sample data:
+
+```bash
+museletter preview            # writes them to a temp dir and opens a browser
+```
+
+The **publication name** on every surface is just the list's name, so rename it
+with `museletter lists edit <slug> --name "Field Notes"`. The **mark and accent
+color** are Museletter's brand by default. To change anything else, eject the
+templates and point the server at your copies:
+
+```bash
+museletter preview --eject ./templates   # copies email.html, email-system.html, page.html
+# edit them (colors, logo, layout), then run the server with:
+export MUSELETTER_TEMPLATE_DIR=./templates
+```
+
+`museletter preview` re-renders from your ejected copies, so you can iterate on
+the look without sending a single email.
+
 ## CLI reference
 
 ```
@@ -364,9 +390,10 @@ museletter status                server, reachability, auth, counts
 museletter doctor                DNS/DKIM/DMARC/SES/config health checks
 museletter health                liveness of the configured server
 museletter docs                  print this README (offline, agent-readable)
+museletter preview               open every reader-facing surface in a browser
 museletter skill install         install the agent skill into .claude/skills
 
-museletter lists <cmd>           list|create|show|rm
+museletter lists <cmd>           list|create|edit|show|rm
 museletter subs <cmd>            add|list|rm|tag|untag|import|export
 museletter tags <cmd>            list|create
 museletter campaigns <cmd>       create|show|edit|preview|test|send|stats|rm

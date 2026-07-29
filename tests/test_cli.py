@@ -375,3 +375,35 @@ def test_init_requires_base_url_and_email():
     result = runner.invoke(cli_app, ["init", "--non-interactive", "--base-url", "https://x.example.com"])
     assert result.exit_code == 1
     assert "required" in result.output
+
+
+def test_preview_writes_all_surfaces(tmp_path):
+    result = runner.invoke(cli_app, ["preview", "--no-open", "--out", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    for name in (
+        "index.html",
+        "email-issue.html",
+        "email-confirm.html",
+        "page-subscribed.html",
+        "page-invalid.html",
+    ):
+        assert (tmp_path / name).exists(), name
+    # the email preview inlines the mark so it renders offline (no CDN dependency)
+    assert "data:image/svg+xml" in (tmp_path / "email-issue.html").read_text()
+
+
+def test_preview_eject_copies_templates(tmp_path):
+    result = runner.invoke(cli_app, ["preview", "--eject", str(tmp_path)])
+    assert result.exit_code == 0
+    for name in ("email.html", "email-system.html", "page.html"):
+        assert (tmp_path / name).exists(), name
+
+
+def test_lists_edit_renames(api):
+    api[("PATCH", "/v1/lists/default")] = {"id": "list_1", "slug": "field-notes", "name": "Field Notes"}
+    result = runner.invoke(
+        cli_app, ["lists", "edit", "default", "--name", "Field Notes", "--slug", "field-notes"]
+    )
+    assert result.exit_code == 0
+    assert "Field Notes" in result.output
+    assert json.loads(api["calls"][-1].content) == {"name": "Field Notes", "slug": "field-notes"}

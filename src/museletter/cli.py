@@ -235,6 +235,155 @@ def docs():
         typer.echo(text)
 
 
+_TEMPLATE_FILES = ["email.html", "email-system.html", "page.html"]
+
+_PREVIEW_INDEX = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Museletter surfaces</title>
+<style>:root{color-scheme:light dark}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f7;color:#1a1a1e;margin:0 auto;max-width:1000px;padding:40px}
+h1{font-size:22px;margin:0 0 6px}.sub{color:#666;margin:0 0 28px;font-size:14px}
+h2{font-size:13px;color:#888;margin:34px 0 10px;font-weight:600}
+.frame{border:1px solid #e1e1e6;border-radius:10px;overflow:hidden;background:#fff}
+iframe{width:100%;border:0;display:block;background:#fff}.email iframe{height:640px}.page iframe{height:430px}
+@media(prefers-color-scheme:dark){body{background:#0b0b0d;color:#f5f5f7}.frame{border-color:#2e2e35}h2{color:#9b9ba6}}</style>
+</head><body><h1>Museletter public surfaces</h1>
+<p class="sub">Rendered from the current templates. Toggle your system light/dark to see both modes.</p>
+$rows</body></html>"""
+
+
+@app.command()
+def preview(
+    out: str = typer.Option(None, "--out", help="directory to write previews to (default: a temp dir)"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="open the previews in a browser"),
+    eject: str = typer.Option(None, "--eject", help="copy the templates to this dir to customize them"),
+):
+    """Preview every public surface (emails and pages), or eject the templates to customize."""
+    import tempfile
+    import webbrowser
+    from pathlib import Path
+    from urllib.parse import quote
+
+    from .render import template_source
+
+    if eject:
+        dest = Path(eject)
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in _TEMPLATE_FILES:
+            (dest / f).write_text(template_source(f), encoding="utf-8")
+        typer.echo(f"ejected {len(_TEMPLATE_FILES)} templates to {dest}")
+        typer.echo(f"edit them, then run the server (or preview) with MUSELETTER_TEMPLATE_DIR={dest}")
+        return
+
+    from .api.public import _page
+    from .render import build_email, render_confirmation
+
+    def page_html(*a, **k) -> str:
+        # HTMLResponse.body is typed bytes | memoryview; coerce before decode.
+        return bytes(_page(*a, **k).body).decode()
+
+    def mark(fill: str) -> str:
+        svg = (
+            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='{fill}'>"
+            "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(0 16 16)'/>"
+            "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(60 16 16)'/>"
+            "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(120 16 16)'/></svg>"
+        )
+        return "data:image/svg+xml," + quote(svg)
+
+    def offline(html: str) -> str:
+        base = "https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email"
+        return html.replace(f"{base}/mark-light.png", mark("#0F7A6B")).replace(
+            f"{base}/mark-dark.png", mark("#5FC9B6")
+        )
+
+    ln, addr = "Your Newsletter", "123 Main St, Your City"
+    issue = (
+        "## A sample issue\n\nHi {{first_name|there}}, this is what an issue looks like: a "
+        "[link](https://example.com), some *emphasis*, and a short list.\n\n"
+        "- the first point\n- the second point\n\n> A pull quote, to show the blockquote style.\n\n"
+        "Inline `code` renders like this. That is the whole system."
+    )
+    _, issue_html, _ = build_email(
+        "A sample issue",
+        issue,
+        name="Ada Lovelace",
+        email="ada@example.com",
+        unsubscribe_url="#",
+        list_name=ln,
+        postal_address=addr,
+    )
+    _, confirm_html, _ = render_confirmation(list_name=ln, confirm_url="#", postal_address=addr)
+    unsub_action = '<form method="post" action="#"><button class="btn btn-danger" type="submit">Unsubscribe</button></form>'
+    surfaces = [
+        ("email-issue", "Campaign / issue email", offline(issue_html)),
+        ("email-confirm", "Confirmation email", offline(confirm_html)),
+        (
+            "page-subscribed",
+            "Page: subscribed",
+            page_html(
+                "You're subscribed",
+                f"<p>Welcome to <strong>{ln}</strong>. Your first issue is on its way.</p>",
+                list_name=ln,
+            ),
+        ),
+        (
+            "page-unsubscribe",
+            "Page: unsubscribe confirm",
+            page_html(
+                "Unsubscribe?",
+                f"<p>You will stop receiving emails from <strong>{ln}</strong>. This takes effect immediately.</p>",
+                variant="gray",
+                list_name=ln,
+                action=unsub_action,
+            ),
+        ),
+        (
+            "page-unsubscribed",
+            "Page: unsubscribed",
+            page_html(
+                "Unsubscribed",
+                "<p>You won't receive these emails anymore. You can re-subscribe any time from the website.</p>",
+                list_name=ln,
+            ),
+        ),
+        (
+            "page-closed",
+            "Page: subscription closed",
+            page_html(
+                "Subscription closed",
+                f"<p>This address is not subscribed to {ln}. Sign up again from the website if that is a mistake.</p>",
+                variant="muted",
+                list_name=ln,
+            ),
+        ),
+        (
+            "page-invalid",
+            "Page: invalid link",
+            page_html(
+                "This link has gone stale",
+                "<p>Confirmation links last 48 hours and work once. Sign up again from the website to get a fresh one.</p>",
+                variant="muted",
+                list_name="Museletter",
+                code="link_invalid",
+            ),
+        ),
+    ]
+    out_dir = Path(out) if out else Path(tempfile.mkdtemp(prefix="museletter-preview-"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for slug, _, html in surfaces:
+        (out_dir / f"{slug}.html").write_text(html, encoding="utf-8")
+    rows = "".join(
+        f'<h2>{title}</h2><div class="frame {"email" if slug.startswith("email") else "page"}">'
+        f'<iframe src="{slug}.html"></iframe></div>'
+        for slug, title, _ in surfaces
+    )
+    index = out_dir / "index.html"
+    index.write_text(_PREVIEW_INDEX.replace("$rows", rows), encoding="utf-8")
+    typer.echo(f"wrote {len(surfaces)} previews to {out_dir}")
+    if open_browser:
+        webbrowser.open(index.as_uri())
+
+
 # ---------- lists ----------
 
 
@@ -257,6 +406,25 @@ def lists_create(name: str, slug: str = typer.Option(None)):
 @lists_app.command("show")
 def lists_show(ref: str):
     _emit(_call("GET", f"/v1/lists/{ref}"))
+
+
+@lists_app.command("edit")
+def lists_edit(
+    ref: str,
+    name: str = typer.Option(None, "--name", help="new display name (the publication name)"),
+    slug: str = typer.Option(None, "--slug", help="new URL slug"),
+):
+    """Rename a list or change its slug."""
+    body = {}
+    if name is not None:
+        body["name"] = name
+    if slug is not None:
+        body["slug"] = slug
+    if not body:
+        typer.echo("nothing to update (pass --name and/or --slug)", err=True)
+        raise typer.Exit(1)
+    data = _call("PATCH", f"/v1/lists/{ref}", body)
+    _emit(data, f"updated list {data['id']} (name: {data['name']}, slug: {data['slug']})")
 
 
 @lists_app.command("rm")

@@ -1,6 +1,8 @@
 import html as html_mod
+import os
 import re
 from importlib.resources import files
+from pathlib import Path
 from string import Template
 from typing import NamedTuple
 
@@ -13,15 +15,47 @@ _markdown = mistune.create_markdown(plugins=["strikethrough", "table", "url"], e
 _TOKEN_RE = re.compile(r"\{\{\s*(first_name|name|email)\s*(?:\|([^}]*?)\s*)?\}\}")
 
 
+def template_source(name: str) -> str:
+    """Read a template, preferring an operator override in MUSELETTER_TEMPLATE_DIR
+    over the packaged default. Eject the defaults with `museletter preview --eject`."""
+    override = os.environ.get("MUSELETTER_TEMPLATE_DIR")
+    if override:
+        path = Path(override) / name
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    return (files("museletter") / "templates" / name).read_text(encoding="utf-8")
+
+
 def load_template(name: str) -> Template:
-    """Templates ship inside the package (templates/*.html) and use $var
-    placeholders (string.Template), so literal CSS/HTML braces need no escaping."""
-    return Template((files("museletter") / "templates" / name).read_text(encoding="utf-8"))
+    """Templates use $var placeholders (string.Template), so literal CSS/HTML
+    braces need no escaping."""
+    return Template(template_source(name))
 
 
 # The email layout is a single boring, battle-tested table column with inline
 # styles (what email clients actually support), kept under Gmail's 102KB clip.
 _EMAIL_TEMPLATE = load_template("email.html")
+# Transactional emails (confirmation) use a sans-serif variant with a button.
+_SYSTEM_TEMPLATE = load_template("email-system.html")
+
+
+def _footer_html(list_name: str, postal_address: str, unsubscribe_url: str = "") -> str:
+    identity = " · ".join(html_mod.escape(p) for p in (list_name, postal_address) if p)
+    actions = []
+    if unsubscribe_url:
+        actions.append(f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#74747F;">Unsubscribe</a>')
+    actions.append(
+        'Sent with <a href="https://github.com/sanketsaurav/museletter" style="color:#74747F;">Museletter</a>'
+    )
+    return (identity + "<br>" if identity else "") + " · ".join(actions)
+
+
+def _footer_text(list_name: str, postal_address: str, unsubscribe_url: str = "") -> list[str]:
+    lines = [p for p in (list_name, postal_address) if p]
+    if unsubscribe_url:
+        lines.append(f"Unsubscribe: {unsubscribe_url}")
+    lines.append("Sent with Museletter")
+    return lines
 
 
 def personalize(text: str, name: str, email: str, escape: bool = False) -> str:
@@ -77,31 +111,53 @@ def personalize_email(
     content_html = personalize(body.base_html, name, email, escape=True)
     content_text = personalize(body.base_text, name, email)
 
-    # Footer: identity line (list + postal address), then a rule-thin line of
-    # actions. "Sent with Museletter" is the platform attribution.
-    identity = " · ".join(html_mod.escape(p) for p in (list_name, postal_address) if p)
-    actions = []
-    if unsubscribe_url:
-        actions.append(f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#74747F;">Unsubscribe</a>')
-    actions.append(
-        'Sent with <a href="https://github.com/sanketsaurav/museletter" style="color:#74747F;">Museletter</a>'
-    )
-    footer_html = (identity + "<br>" if identity else "") + " · ".join(actions)
-    header_html = html_mod.escape(list_name) if list_name else "Newsletter"
-
     html = _EMAIL_TEMPLATE.substitute(
         subject=html_mod.escape(subject),
-        header=header_html,
+        header=html_mod.escape(list_name) if list_name else "Newsletter",
         content=content_html,
-        footer=footer_html,
+        footer=_footer_html(list_name, postal_address, unsubscribe_url),
     )
+    text = content_text + "\n\n" + "\n".join(_footer_text(list_name, postal_address, unsubscribe_url)) + "\n"
+    return subject, html, text
 
-    text_footer = [p for p in (list_name, postal_address) if p]
-    if unsubscribe_url:
-        text_footer.append(f"Unsubscribe: {unsubscribe_url}")
-    text_footer.append("Sent with Museletter")
-    text = content_text + "\n\n" + "\n".join(text_footer) + "\n"
 
+_BODY_STYLE = "margin:0 0 16px;font-size:16px;line-height:1.6;color:#3E3E45;"
+_BTN_STYLE = (
+    "display:inline-block;background:#0F7A6B;color:#FFFFFF;font-size:16px;font-weight:600;"
+    "padding:13px 24px;border-radius:8px;text-decoration:none;margin-top:8px;"
+)
+
+
+def render_confirmation(
+    *, list_name: str, confirm_url: str, postal_address: str = ""
+) -> tuple[str, str, str]:
+    """Render the double opt-in confirmation email: sans-serif, with the confirm
+    button placed after the message. A transactional email, not an issue."""
+    ln = html_mod.escape(list_name)
+    subject = f"Confirm your subscription to {list_name}"
+    content = (
+        f'<h1 class="ml-h1" style="margin:0 0 16px;font-size:26px;font-weight:600;letter-spacing:-0.02em;'
+        f'line-height:1.2;color:#1A1A1E;">Confirm your subscription</h1>'
+        f'<p class="ml-body" style="{_BODY_STYLE}">Someone (hopefully you) asked to subscribe this address to '
+        f'<strong style="color:#1A1A1E;">{ln}</strong>. Confirm below and the next issue lands in your inbox.</p>'
+        f'<p class="ml-body" style="{_BODY_STYLE}">If this was not you, you can safely ignore this email. '
+        f"Nothing happens until you confirm.</p>"
+        f'<a class="ml-btn" href="{html_mod.escape(confirm_url)}" style="{_BTN_STYLE}">Confirm subscription</a>'
+    )
+    html = _SYSTEM_TEMPLATE.substitute(
+        subject=html_mod.escape(subject),
+        header=ln,
+        content=content,
+        footer=_footer_html(list_name, postal_address),
+    )
+    text = (
+        f"Confirm your subscription\n\n"
+        f"Someone (hopefully you) asked to subscribe this address to {list_name}. "
+        f"Confirm here and the next issue lands in your inbox:\n{confirm_url}\n\n"
+        f"If this was not you, you can safely ignore this email.\n\n"
+        + "\n".join(_footer_text(list_name, postal_address))
+        + "\n"
+    )
     return subject, html, text
 
 

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>$subject</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Transactional / system emails are sans-serif (Public Sans), never the serif
+   issue face. The action is a button, placed after the message. */
+@media (prefers-color-scheme: dark) {
+  .ml-bg { background: #0B0B0D !important; }
+  .ml-rule { border-top-color: #2E2E35 !important; }
+  .ml-name, .ml-h1 { color: #F5F5F7 !important; }
+  .ml-body { color: #C9C9D1 !important; }
+  .ml-helper { color: #86867F !important; }
+  .ml-btn { background: #5FC9B6 !important; color: #06231F !important; }
+  .ml-footer, .ml-footer a { color: #86867F !important; }
+  .ml-mark-light { display: none !important; }
+  .ml-mark-dark { display: inline-block !important; }
+}
+</style>
+</head>
+<body class="ml-bg" style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="ml-bg" style="background-color:#FFFFFF;">
+<tr><td align="center" style="padding:48px 24px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+<tr><td style="padding:0 0 48px;">
+<img class="ml-mark-light" src="https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email/mark-light.png" width="17" height="17" alt="" style="border:0;vertical-align:middle;">
+<img class="ml-mark-dark" src="https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email/mark-dark.png" width="17" height="17" alt="" style="border:0;vertical-align:middle;display:none;">
+<span class="ml-name" style="font-size:15px;font-weight:700;letter-spacing:-0.04em;color:#1A1A1E;vertical-align:middle;margin-left:8px;">$header</span>
+</td></tr>
+<tr><td style="padding:0 0 44px;font-family:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+$content
+</td></tr>
+<tr><td class="ml-rule" style="border-top:1px solid #E1E1E6;padding:20px 0 0;">
+<div class="ml-footer" style="font-family:'Public Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.7;color:#74747F;">
+$footer
+</div>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
