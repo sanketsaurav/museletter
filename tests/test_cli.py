@@ -420,6 +420,42 @@ def test_preview_eject_copies_templates(tmp_path):
         assert (tmp_path / name).exists(), name
 
 
+def test_init_quotes_env_values_with_spaces(tmp_path):
+    env = tmp_path / ".env"
+    result = runner.invoke(
+        cli_app,
+        [
+            "init",
+            "--non-interactive",
+            "--base-url",
+            "http://127.0.0.1:8000",
+            "--from-email",
+            "a@b.c",
+            "--from-name",
+            "Field Notes",
+            "--postal-address",
+            "1 Main St, Town",
+            "--env-file",
+            str(env),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    text = env.read_text()
+    # Values with spaces are quoted so `source .env` (and launchd/systemd) parse
+    # them as one value; plain values stay unquoted.
+    assert "MUSELETTER_FROM_NAME='Field Notes'" in text
+    assert "MUSELETTER_POSTAL_ADDRESS='1 Main St, Town'" in text
+    assert "MUSELETTER_FROM_EMAIL=a@b.c" in text
+
+
+def test_inline_email_marks_replaces_cdn():
+    base = "https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email"
+    html = f'<img src="{base}/mark-light.png"><img src="{base}/mark-dark.png">'
+    out = cli_mod._inline_email_marks(html)
+    assert "jsdelivr" not in out
+    assert out.count("data:image/svg+xml,") == 2
+
+
 def test_lists_edit_renames(api):
     api[("PATCH", "/v1/lists/default")] = {"id": "list_1", "slug": "field-notes", "name": "Field Notes"}
     result = runner.invoke(

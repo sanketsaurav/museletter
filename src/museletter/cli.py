@@ -1,5 +1,6 @@
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -330,6 +331,26 @@ def _finalize_preview(html: str, label: str) -> str:
     return html
 
 
+def _email_mark(fill: str) -> str:
+    svg = (
+        f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='{fill}'>"
+        "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(0 16 16)'/>"
+        "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(60 16 16)'/>"
+        "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(120 16 16)'/></svg>"
+    )
+    return "data:image/svg+xml," + quote(svg)
+
+
+def _inline_email_marks(html: str) -> str:
+    """Swap the CDN-hosted email mark for inline data-URI marks so a rendered
+    email is self-contained in a browser (the CDN 404s while the repo is private,
+    and previews should not depend on the network)."""
+    base = "https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email"
+    return html.replace(f"{base}/mark-light.png", _email_mark("#0F7A6B")).replace(
+        f"{base}/mark-dark.png", _email_mark("#5FC9B6")
+    )
+
+
 @app.command()
 def preview(
     out: str = typer.Option(None, "--out", help="directory to write previews to (default: a temp dir)"),
@@ -340,7 +361,6 @@ def preview(
     import tempfile
     import webbrowser
     from pathlib import Path
-    from urllib.parse import quote
 
     from .render import template_source
 
@@ -359,21 +379,6 @@ def preview(
     def page_html(*a, **k) -> str:
         # HTMLResponse.body is typed bytes | memoryview; coerce before decode.
         return bytes(_page(*a, **k).body).decode()
-
-    def mark(fill: str) -> str:
-        svg = (
-            f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='{fill}'>"
-            "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(0 16 16)'/>"
-            "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(60 16 16)'/>"
-            "<rect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(120 16 16)'/></svg>"
-        )
-        return "data:image/svg+xml," + quote(svg)
-
-    def offline(html: str) -> str:
-        base = "https://cdn.jsdelivr.net/gh/sanketsaurav/museletter@master/assets/email"
-        return html.replace(f"{base}/mark-light.png", mark("#0F7A6B")).replace(
-            f"{base}/mark-dark.png", mark("#5FC9B6")
-        )
 
     ln, addr = "Your Newsletter", "123 Main St, Your City"
     issue = (
@@ -394,8 +399,8 @@ def preview(
     _, confirm_html, _ = render_confirmation(list_name=ln, confirm_url="#", postal_address=addr)
     unsub_action = '<form method="post" action="#"><button class="btn btn-danger" type="submit">Unsubscribe</button></form>'
     surfaces = [
-        ("email-issue", "Campaign / issue email", offline(issue_html)),
-        ("email-confirm", "Confirmation email", offline(confirm_html)),
+        ("email-issue", "Campaign / issue email", _inline_email_marks(issue_html)),
+        ("email-confirm", "Confirmation email", _inline_email_marks(confirm_html)),
         (
             "page-subscribed",
             "Page: subscribed",
@@ -682,7 +687,8 @@ def campaigns_edit(
 def campaigns_preview(campaign_id: str, html_out: Path = typer.Option(None, "--html")):
     data = _call("GET", f"/v1/campaigns/{campaign_id}/preview")
     if html_out:
-        html_out.write_text(data["html"])
+        # Inline the mark so the saved preview renders standalone in a browser.
+        html_out.write_text(_inline_email_marks(data["html"]))
         typer.echo(f"wrote {html_out}")
     else:
         _emit(data, f"subject: {data['subject']}\n\n{data['text']}")
@@ -845,7 +851,9 @@ def init(
         "MUSELETTER_POSTAL_ADDRESS": postal_address,
         "AWS_REGION": region,
     }
-    env_text = "".join(f"{k}={v}\n" for k, v in env.items())
+    # Quote values so the file is safe to `source` (launchd and local runs do)
+    # and to load via systemd EnvironmentFile; shlex.quote only quotes when needed.
+    env_text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in env.items())
     token = clientconf.encode_token(base_url, api_key)
 
     # Write the env file in every mode (it's the command's side effect); only the
