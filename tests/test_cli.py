@@ -389,7 +389,12 @@ def test_preview_writes_all_surfaces(tmp_path):
     ):
         assert (tmp_path / name).exists(), name
     # the email preview inlines the mark so it renders offline (no CDN dependency)
-    assert "data:image/svg+xml" in (tmp_path / "email-issue.html").read_text()
+    issue = (tmp_path / "email-issue.html").read_text()
+    assert "data:image/svg+xml" in issue
+    # every preview tab is branded: a descriptive title and a favicon
+    assert "<title>Campaign / issue email · Museletter</title>" in issue
+    assert 'rel="icon"' in issue
+    assert 'rel="icon"' in (tmp_path / "index.html").read_text()
 
 
 def test_preview_forces_light_and_dark_variants(tmp_path):

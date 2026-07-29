@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -238,11 +239,11 @@ def docs():
 _TEMPLATE_FILES = ["email.html", "email-system.html", "page.html"]
 
 _PREVIEW_INDEX = """<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Museletter surfaces</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Museletter preview</title>$favicon
 <style>
 :root{--bg:#f5f5f7;--fg:#1a1a1e;--sub:#6b6b74;--h2:#8a8a92;--frame:#e1e1e6;--card:#fff}
 html[data-theme="dark"]{--bg:#0b0b0d;--fg:#f5f5f7;--sub:#9b9ba6;--h2:#9b9ba6;--frame:#2e2e35;--card:#111114}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;max-width:1000px;padding:0 40px 48px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;max-width:1000px;padding:0 40px 48px;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--bg);padding:20px 0 14px;border-bottom:1px solid var(--frame)}
 h1{font-size:20px;margin:0}.sub{color:var(--sub);margin:16px 0 0;font-size:14px}
 .head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:32px 0 10px}
@@ -305,6 +306,28 @@ def _theme_variants(html: str) -> tuple[str, str]:
             end += 1
         light = light[:start] + light[end + 1 :]
     return light, dark
+
+
+# The single-asterisk mark (matches page.html), for the browser-tab favicon.
+_PREVIEW_FAVICON = (
+    '<link rel="icon" href="data:image/svg+xml,'
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='%230F7A6B'%3E"
+    "%3Crect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(0 16 16)'/%3E"
+    "%3Crect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(60 16 16)'/%3E"
+    "%3Crect x='2.40' y='13.25' width='27.20' height='5.5' rx='2.75' transform='rotate(120 16 16)'/%3E"
+    '%3C/svg%3E">'
+)
+
+
+def _finalize_preview(html: str, label: str) -> str:
+    """Give a preview file a branded browser tab: a descriptive title, and the
+    Museletter mark favicon for surfaces that carry none of their own (the
+    emails; the pages already ship one)."""
+    title = f"<title>{label} · Museletter</title>"
+    html = re.sub(r"<title>.*?</title>", lambda _m: title, html, count=1, flags=re.S)
+    if 'rel="icon"' not in html:
+        html = html.replace("</title>", "</title>" + _PREVIEW_FAVICON, 1)
+    return html
 
 
 @app.command()
@@ -425,8 +448,8 @@ def preview(
     ]
     out_dir = Path(out) if out else Path(tempfile.mkdtemp(prefix="museletter-preview-"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    for slug, _, html in surfaces:
-        light, dark = _theme_variants(html)
+    for slug, title, html in surfaces:
+        light, dark = _theme_variants(_finalize_preview(html, title))
         (out_dir / f"{slug}.html").write_text(light, encoding="utf-8")
         (out_dir / f"{slug}.dark.html").write_text(dark, encoding="utf-8")
     rows = "".join(
@@ -437,7 +460,9 @@ def preview(
         for slug, title, _ in surfaces
     )
     index = out_dir / "index.html"
-    index.write_text(_PREVIEW_INDEX.replace("$rows", rows), encoding="utf-8")
+    index.write_text(
+        _PREVIEW_INDEX.replace("$favicon", _PREVIEW_FAVICON).replace("$rows", rows), encoding="utf-8"
+    )
     typer.echo(f"wrote {len(surfaces)} surfaces (light + dark) to {out_dir}")
     if open_browser:
         webbrowser.open(index.as_uri())
