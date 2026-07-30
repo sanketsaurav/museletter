@@ -42,6 +42,12 @@ Three layers:
 pip install museletter          # the CLI and server
 ```
 
+On macOS, Homebrew works too:
+
+```bash
+brew install sanketsaurav/tap/museletter
+```
+
 Or run the server as a container (see [Deployment](#deployment)):
 
 ```bash
