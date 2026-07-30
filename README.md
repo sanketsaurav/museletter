@@ -5,7 +5,7 @@
 
 <p></p>
 
-Museletter is a **headless**, **agent-first** newsletter platform. One container, one SQLite
+Museletter is a **headless**, **agent-first** newsletter engine. One container, one SQLite
 database, Amazon SES. There is no web UI. You (or your AI agent) operate it
 through a CLI and an HTTP API.
 
@@ -187,16 +187,15 @@ proxy (Caddy, nginx, your platform's router) for TLS.
 
 ### Backups and durability
 
-The entire state is one SQLite file at `/data/museletter.db`, so durability is a
-storage concern, not a code one:
+Everything lives in one SQLite file at `/data/museletter.db`, so backing it up
+comes down to where you keep `/data`:
 
-- Put `/data` on a **persistent/replicated volume** (most hosts offer this), or
-- Stream the file continuously to object storage with
-  [Litestream](https://litestream.io) as a sidecar against the same `/data`
-  volume, for point-in-time restore to S3-compatible storage.
+- put `/data` on a persistent or replicated volume (most hosts offer one), or
+- run [Litestream](https://litestream.io) next to the container to stream the
+  file to S3-compatible storage, which gets you point-in-time restore.
 
-There is no remote-database mode on purpose: one local file is what keeps the
-send ledger fast (the database is the queue) and the whole thing portable.
+There's no remote-database option, by design: one local file is what keeps the
+send ledger fast (the database is the queue) and the whole thing easy to move.
 
 ### Render (or any PaaS with a Dockerfile)
 
@@ -301,12 +300,10 @@ The client CLI reads its server from `~/.config/museletter/config.toml`
 
 ## Connect your website
 
-There are two ways to collect subscribers, depending on whether your site has a
-backend. Both feed the same `default` list (or any list slug).
-
-Either way, double opt-in is the default (`MUSELETTER_OPT_IN=single` to skip the
-confirmation email), and unsubscribes are one-click (RFC 8058), immediate, and
-handled for you.
+How you collect subscribers depends on whether your site has a backend, but both
+paths feed the same `default` list (or any slug). Double opt-in is on by default
+(`MUSELETTER_OPT_IN=single` skips the confirmation email), and every email
+carries a one-click RFC 8058 unsubscribe.
 
 ### If you have a backend (recommended when you can)
 
@@ -398,10 +395,10 @@ list exists out of the box).
 
 ## Look and feel
 
-Every reader-facing surface is small and self-contained: two emails (the issue
-and the double opt-in confirmation) and the public pages (subscribed,
-unsubscribe, invalid link, and friends). Preview them all at once, rendered
-from the current templates with sample data:
+There are only a few reader-facing surfaces: two emails (the issue and the double
+opt-in confirmation) and the public pages (subscribed, unsubscribe, invalid link,
+and friends). Preview them all at once, rendered from the current templates with
+sample data:
 
 ```bash
 museletter preview            # writes them to a temp dir and opens a browser

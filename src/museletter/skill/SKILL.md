@@ -1,11 +1,11 @@
 ---
 name: museletter
-description: Operate a Museletter newsletter server - manage subscribers and lists, draft and send campaigns, check delivery stats and account health. Use when the user asks to send a newsletter, announce a new post to subscribers, manage their mailing list, or check newsletter stats.
+description: Operate a Museletter newsletter engine - manage subscribers and lists, draft and send campaigns, check delivery stats and account health. Use when the user asks to send a newsletter, announce a new post to subscribers, manage their mailing list, or check newsletter stats.
 ---
 
 # Operating Museletter
 
-Museletter is a headless newsletter platform. Everything is done through its CLI
+Museletter is a headless newsletter engine. Everything is done through its CLI
 (`pip install museletter`) or HTTP API. There is no web UI, by design: you are the interface.
 
 ## Setup

@@ -1,6 +1,6 @@
 # Museletter - agent guide
 
-Headless, agent-first newsletter platform: one FastAPI + SQLite server, Amazon
+Headless, agent-first newsletter engine: one FastAPI + SQLite server, Amazon
 SES for delivery, a typer CLI (`museletter`) as the only client. No web UI by
 design. Read `README.md` for the product story; this file is for working on
 the code.
