@@ -1,0 +1,47 @@
+name: Homebrew
+
+# Regenerates the tap formula after a release publishes to PyPI. Runs on the
+# `release: published` event so PyPI already has the version. Needs a repo
+# secret HOMEBREW_TAP_TOKEN: a fine-grained PAT with contents:write on the
+# sanketsaurav/homebrew-tap repo.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.0.1)"
+        required: true
+
+jobs:
+  formula:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Check out the tap
+        uses: actions/checkout@v4
+        with:
+          repository: sanketsaurav/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Resolve the version
+        id: v
+        run: |
+          raw="${{ github.event.inputs.version || github.event.release.tag_name }}"
+          echo "version=${raw#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate the formula
+        run: python3 scripts/homebrew_formula.py "${{ steps.v.outputs.version }}" tap/Formula/museletter.rb
+
+      - name: Commit and push to the tap
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/museletter.rb
+          git diff --cached --quiet || git commit -m "museletter ${{ steps.v.outputs.version }}"
+          git push
