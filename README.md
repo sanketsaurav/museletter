@@ -3,29 +3,22 @@
   <img alt="Museletter" src="assets/museletter-lockup.svg" width="200">
 </picture>
 
-A headless, agent-first newsletter platform. One container, one SQLite
-database, Amazon SES. There is no web UI: you (or your AI agent) operate it
+---
+
+Museletter is a **headless**, **agent-first** newsletter platform. One container, one SQLite
+database, Amazon SES. There is no web UI. You (or your AI agent) operate it
 through a CLI and an HTTP API.
 
-## Why
-
-Newsletter platforms charge per subscriber. Amazon SES charges about **$0.10
-per 1,000 emails**, so a 50,000-subscriber issue costs $5 and hosting
-Museletter costs a few dollars a month on any container host. If you send the
-occasional email to people who subscribed on your website, you don't need a
-marketing suite. You need the primitives, and nothing else:
+I'm building Museletter to use it on my website [sanketsaurav.com](https://sanketsaurav.com?ref=gh_museletter). It has all essential primitives for running a professional newsletter:
 
 - subscribers, lists, and tags (with CSV import/export)
 - a public subscribe endpoint with double opt-in
-- Markdown campaigns rendered into a clean, battle-tested email template
+- Markdown campaigns rendered into a cleann email template
 - RFC 8058 one-click unsubscribe, injected automatically on every send
 - automatic bounce/complaint suppression via SES to SNS webhooks
 - a crash-safe send ledger that respects SES rate limits and resumes mid-blast
 - per-campaign delivery stats
 - `museletter doctor`, which checks DNS, DKIM, DMARC, SES sandbox/quota, config
-
-No automations, no A/B tests, no landing pages, no tracking pixels. Want
-RSS-to-email? That is your agent's job, and it ships as a skill recipe.
 
 ## How it works
 
@@ -41,11 +34,6 @@ Three layers:
    admin client for a running server, local or remote.
 3. **The skill**: a bundled set of recipes so an agent can drive the CLI. See
    [Agent-first design](#agent-first-design).
-
-Sending never happens inline. A campaign materializes one row per recipient in
-a ledger table; a background loop drains that ledger through SES at your
-configured rate, marking each row with its SES message id. A crash or redeploy
-resumes from the pending rows, and retries cannot double-send.
 
 ## Install
 
