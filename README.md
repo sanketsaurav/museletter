@@ -228,6 +228,37 @@ museletter service uninstall
 Drive it from the same machine over localhost:
 `museletter connect http://127.0.0.1:8000 --api-key <key>`.
 
+## Updating
+
+There is no auto-update; you update the two pieces yourself.
+
+The **CLI** on your machine:
+
+```bash
+pip install -U museletter          # or: pipx upgrade museletter
+```
+
+The **server**:
+
+- **Docker:** pull the new image and recreate the container. The database lives
+  on the `/data` volume, so it survives:
+
+  ```bash
+  docker pull ghcr.io/sanketsaurav/museletter:latest
+  docker rm -f museletter && docker run -d --name museletter \
+    --env-file .env -v museletter-data:/data -p 8000:8000 \
+    ghcr.io/sanketsaurav/museletter:latest
+  ```
+
+  Every release also publishes `:X.Y.Z` and `:X.Y` tags; pin to one for
+  controlled upgrades instead of `:latest`.
+
+- **pip or a service install:** `pip install -U museletter`, then
+  `museletter service restart` (launchd/systemd) or restart your process.
+
+Check versions with `museletter --version` (the CLI) and `museletter health`
+(the running server reports its version at `/health`).
+
 ## Configuration
 
 Set these in the server's environment (`museletter init` writes most of them).
@@ -386,7 +417,7 @@ the look without sending a single email.
 museletter serve                 run the server
 museletter init                  bootstrap server config (.env + connect token)
 museletter print-token           print a connect token for a configured server
-museletter service <cmd>         install|uninstall|status (launchd/systemd)
+museletter service <cmd>         install|restart|uninstall|status (launchd/systemd)
 
 museletter connect <token|--url> point the CLI at a server, save a profile
 museletter status                server, reachability, auth, counts

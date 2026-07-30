@@ -319,6 +319,14 @@ def test_print_token_roundtrips(monkeypatch):
 # ---------- skill install ----------
 
 
+def test_version_flag():
+    from museletter import __version__
+
+    result = runner.invoke(cli_app, ["--version"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
+
+
 def test_docs_prints_readme():
     result = runner.invoke(cli_app, ["docs"])
     assert result.exit_code == 0

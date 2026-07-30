@@ -126,6 +126,23 @@ def uninstall() -> None:
     raise ServiceError(f"unsupported platform: {sys.platform}")
 
 
+def restart() -> None:
+    if sys.platform == "darwin":
+        path = _launch_agent_path()
+        if not path.exists():
+            raise ServiceError("no launchd service installed")
+        if _is_loaded():
+            _run(["launchctl", "unload", str(path)])
+        _run(["launchctl", "load", str(path)])
+        return
+    if sys.platform.startswith("linux"):
+        if not _systemd_unit_path().exists():
+            raise ServiceError("no systemd service installed")
+        _run(["systemctl", "--user", "restart", "museletter.service"])
+        return
+    raise ServiceError(f"unsupported platform: {sys.platform}")
+
+
 def status() -> str:
     if sys.platform == "darwin":
         if not _launch_agent_path().exists():

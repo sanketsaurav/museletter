@@ -29,10 +29,21 @@ app.add_typer(service_app, name="service")
 STATE: dict = {"json": False, "profile": None}
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        from . import __version__
+
+        typer.echo(f"museletter {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def _global(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON responses"),
     profile: str = typer.Option(None, "--profile", "-p", help="Server profile to use"),
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True, help="Show the version and exit"
+    ),
 ):
     STATE["json"] = json_output
     STATE["profile"] = profile
@@ -934,6 +945,19 @@ def service_uninstall():
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     typer.echo("service removed")
+
+
+@service_app.command("restart")
+def service_restart():
+    """Restart the service (e.g. after upgrading the package)."""
+    from . import service
+
+    try:
+        service.restart()
+    except service.ServiceError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo("service restarted")
 
 
 @service_app.command("status")
