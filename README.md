@@ -185,6 +185,19 @@ database lives at `/data/museletter.db` (set by the image); back up that one
 file and you have backed up everything. Put the container behind a reverse
 proxy (Caddy, nginx, your platform's router) for TLS.
 
+### Backups and durability
+
+The entire state is one SQLite file at `/data/museletter.db`, so durability is a
+storage concern, not a code one:
+
+- Put `/data` on a **persistent/replicated volume** (most hosts offer this), or
+- Stream the file continuously to object storage with
+  [Litestream](https://litestream.io) as a sidecar against the same `/data`
+  volume, for point-in-time restore to S3-compatible storage.
+
+There is no remote-database mode on purpose: one local file is what keeps the
+send ledger fast (the database is the queue) and the whole thing portable.
+
 ### Render (or any PaaS with a Dockerfile)
 
 Create a service from this repo; Render detects the Dockerfile. Then:
@@ -428,7 +441,7 @@ museletter preview               open every reader-facing surface in a browser
 museletter skill install         install the agent skill into .claude/skills
 
 museletter lists <cmd>           list|create|edit|show|rm
-museletter subs <cmd>            add|list|rm|tag|untag|import|export
+museletter subs <cmd>            add|show|list|rm|tag|untag|import|export
 museletter tags <cmd>            list|create
 museletter campaigns <cmd>       create|show|edit|preview|test|send|stats|rm
 museletter suppressions <cmd>    list|add|rm
