@@ -1,9 +1,9 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/museletter-lockup-dark.svg">
-  <img alt="Museletter" src="assets/museletter-lockup.svg" width="200">
+  <img alt="Museletter" src="assets/museletter-lockup.svg" height="40">
 </picture>
 
----
+<p></p>
 
 Museletter is a **headless**, **agent-first** newsletter platform. One container, one SQLite
 database, Amazon SES. There is no web UI. You (or your AI agent) operate it
@@ -452,18 +452,16 @@ Run any command with `--help` for its flags, or `--json` for machine output.
 
 ## Multiple newsletters
 
-Two shapes, depending on whether they share a sender identity:
+Newsletters that send from the same address are just separate lists on one
+server. Pick the one you're working on with `museletter lists use <slug>`, and
+`subs`, `campaigns`, and `tags` all target it until you switch, so you're not
+repeating `--list` everywhere (you can still pass `--list` for a one-off, or set
+`MUSELETTER_LIST` in a script). `museletter status` shows which list is active
+and how many subscribers each one has.
 
-- **Same sender, several audiences** are separate **lists** on one server.
-  `museletter lists use <slug>` pins the newsletter that `--list` defaults to
-  (like a current branch), so `subs` / `campaigns` / `tags` target it without
-  the flag; `--list` still overrides per command, and `museletter status` shows
-  the active list and per-list subscriber counts. `MUSELETTER_LIST` overrides it
-  for scripts and agents.
-- **Different sender domains** are separate **servers** (a museletter server has
-  one `from_email`). `museletter connect --name <name>` saves each as a profile;
-  `museletter profiles list|use|rm` switches between them, or `--profile <name>`
-  selects one per command.
+When newsletters send from different domains, give each its own server, since a
+server has a single `from_email`. Connect to each with `museletter connect
+--name <name>` and switch between them with `museletter profiles use <name>`.
 
 ## Troubleshooting
 
