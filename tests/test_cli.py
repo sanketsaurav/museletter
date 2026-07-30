@@ -189,8 +189,8 @@ def test_campaigns_stats_human_output(api):
         "completed_at": "t",
     }
     result = runner.invoke(cli_app, ["campaigns", "stats", "cmp_1"])
-    assert "status: sent" in result.output
-    assert "delivered: 2" in result.output
+    assert "status sent" in result.output
+    assert "delivered" in result.output and "66.7%" in result.output  # 2 of 3
 
 
 def test_campaigns_test_send(api):
@@ -477,6 +477,65 @@ def test_inline_email_marks_replaces_cdn():
     out = cli_mod._inline_email_marks(html)
     assert "jsdelivr" not in out
     assert out.count("data:image/svg+xml,") == 2
+
+
+def test_campaign_stats_funnel(api):
+    stats = {
+        "id": "cmp_1", "status": "sent", "recipient_count": 1000,
+        "started_at": "2026-07-29T22:47:45.000Z", "completed_at": "2026-07-29T22:51:00.000Z",
+        "pending": 0, "sent": 10, "delivered": 950, "bounced": 30,
+        "complained": 5, "failed": 0, "suppressed": 5,
+    }  # fmt: skip
+    api[("GET", "/v1/campaigns/cmp_1/stats")] = stats
+    human = runner.invoke(cli_app, ["campaigns", "stats", "cmp_1"])
+    assert human.exit_code == 0, human.output
+    out = human.output
+    assert "delivered" in out and "bounced" in out
+    assert "95.0%" in out  # 950 / 1000 delivered
+    assert "1,000 recipients" in out
+    assert "█" in out  # a bar was drawn
+    assert "delivery" in out and "bounce" in out
+    # the --json path returns the raw stats untouched (for agents)
+    as_json = runner.invoke(cli_app, ["--json", "campaigns", "stats", "cmp_1"])
+    assert json.loads(as_json.output)["delivered"] == 950
+
+
+def test_lists_show_breakdown(api):
+    api[("GET", "/v1/lists/default")] = {
+        "id": "list_1", "slug": "default", "name": "Field Notes",
+        "subscribers": {"active": 120, "unconfirmed": 4, "unsubscribed": 6, "bounced": 2, "complained": 1},
+        "subscribe_url": "https://x/subscribe/default",
+    }  # fmt: skip
+    result = runner.invoke(cli_app, ["lists", "show", "default"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "Field Notes" in out
+    assert "active" in out and "unsubscribed" in out
+    assert "133 subscribers" in out  # 120 + 4 + 6 + 2 + 1
+    assert "https://x/subscribe/default" in out
+
+
+def test_campaigns_show_with_funnel(api):
+    api[("GET", "/v1/campaigns/cmp_1")] = {
+        "id": "cmp_1", "subject": "Issue 1", "status": "sent", "recipient_count": 200,
+        "tag": None, "created_at": "2026-07-29T10:00:00.000Z", "body_markdown": "# hi",
+        "stats": {"delivered": 190, "sent": 0, "pending": 0, "bounced": 8,
+                  "complained": 1, "failed": 0, "suppressed": 1},
+    }  # fmt: skip
+    result = runner.invoke(cli_app, ["campaigns", "show", "cmp_1"])
+    assert result.exit_code == 0, result.output
+    assert "Issue 1" in result.output and "delivered" in result.output and "190" in result.output
+
+
+def test_subs_show(api):
+    api[("GET", "/v1/subscribers/sub_1")] = {
+        "id": "sub_1", "email": "ada@x.com", "name": "Ada", "status": "active",
+        "tags": ["vip"], "created_at": "2026-07-01T00:00:00.000Z",
+        "confirmed_at": "2026-07-01T00:05:00.000Z", "unsubscribed_at": None,
+    }  # fmt: skip
+    result = runner.invoke(cli_app, ["subs", "show", "sub_1"])
+    assert result.exit_code == 0, result.output
+    assert "ada@x.com" in result.output and "active" in result.output and "vip" in result.output
 
 
 def test_lists_edit_renames(api):

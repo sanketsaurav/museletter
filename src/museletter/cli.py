@@ -87,13 +87,156 @@ def _emit(data, human: str | None = None) -> None:
         typer.echo(human)
 
 
+# Colors for the human-readable reports. Styling auto-strips when output is not
+# a TTY (piped, or the --json path), so machine consumers are unaffected.
+_STATUS_COLORS = {
+    "active": "green", "unconfirmed": "yellow", "unsubscribed": "bright_black",
+    "bounced": "red", "complained": "magenta",
+    "draft": "bright_black", "sending": "cyan", "sent": "green",
+    "scheduled": "yellow", "canceled": "bright_black", "failed": "red",
+}  # fmt: skip
+_FUNNEL_COLORS = {
+    "delivered": "green", "sent": "cyan", "pending": "bright_black",
+    "bounced": "red", "complained": "magenta", "failed": "red", "suppressed": "yellow",
+}  # fmt: skip
+
+
 def _table(rows: list[dict], columns: list[str]) -> str:
     if not rows:
         return "(none)"
     widths = {c: max(len(c), *(len(str(r.get(c, ""))) for r in rows)) for c in columns}
-    header = "  ".join(c.upper().ljust(widths[c]) for c in columns)
-    lines = ["  ".join(str(r.get(c, "")).ljust(widths[c]) for c in columns) for r in rows]
-    return "\n".join([header, *lines])
+    header = "  ".join(typer.style(c.upper().ljust(widths[c]), bold=True) for c in columns)
+    lines = [header]
+    for r in rows:
+        cells = []
+        for c in columns:
+            text = str(r.get(c, "")).ljust(widths[c])
+            color = _STATUS_COLORS.get(str(r.get(c, ""))) if c == "status" else None
+            cells.append(typer.style(text, fg=color) if color else text)
+        lines.append("  ".join(cells))
+    return "\n".join(lines)
+
+
+def _short_ts(iso: str | None) -> str:
+    return iso.replace("T", " ")[:16] if iso else "-"
+
+
+def _bar(count: int, total: int, width: int = 22) -> str:
+    filled = max(0, min(width, round(count / max(total, 1) * width)))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _breakdown(counts: dict, order: list[str], total: int, colors: dict) -> str:
+    """One row per status: colored label, right-aligned count, percent, and bar."""
+    total = max(total, 1)
+    label_w = max((len(s) for s in order), default=0)
+    shown = {s: f"{counts.get(s, 0):,}" for s in order}
+    num_w = max((len(v) for v in shown.values()), default=1)
+    lines = []
+    for s in order:
+        n = counts.get(s, 0)
+        color = colors.get(s)
+        label = typer.style(s.ljust(label_w), fg=color)
+        bar = typer.style(_bar(n, total), fg=color)
+        lines.append(f"  {label}  {shown[s].rjust(num_w)}  {n / total * 100:5.1f}%  {bar}")
+    return "\n".join(lines)
+
+
+_FUNNEL_ORDER = ["delivered", "sent", "pending", "bounced", "complained", "failed", "suppressed"]
+
+
+def _render_campaign_stats(data: dict) -> str:
+    total = data.get("recipient_count") or sum(data.get(s, 0) for s in _FUNNEL_ORDER)
+    header = (
+        typer.style(data["id"], bold=True)
+        + "  status "
+        + typer.style(data["status"], fg=_STATUS_COLORS.get(data["status"]))
+        + typer.style(f"  ·  {total:,} recipients", dim=True)
+    )
+    times = [
+        t
+        for t in (
+            f"started {_short_ts(data['started_at'])}" if data.get("started_at") else "",
+            f"completed {_short_ts(data['completed_at'])}" if data.get("completed_at") else "",
+        )
+        if t
+    ]
+    parts = [header]
+    if times:
+        parts.append(typer.style("  " + "  ·  ".join(times), dim=True))
+    parts += ["", _breakdown(data, _FUNNEL_ORDER, total, _FUNNEL_COLORS), ""]
+    d = max(total, 1)
+    parts.append(
+        "  "
+        + typer.style("delivery ", dim=True)
+        + typer.style(f"{data.get('delivered', 0) / d * 100:.1f}%", fg="green")
+        + typer.style("   bounce ", dim=True)
+        + typer.style(f"{data.get('bounced', 0) / d * 100:.1f}%", fg="red")
+        + typer.style("   complaint ", dim=True)
+        + typer.style(f"{data.get('complained', 0) / d * 100:.1f}%", fg="magenta")
+    )
+    return "\n".join(parts)
+
+
+def _render_campaign_detail(data: dict) -> str:
+    parts = [
+        typer.style(data["subject"], bold=True),
+        typer.style(data["id"], dim=True)
+        + "  status "
+        + typer.style(data["status"], fg=_STATUS_COLORS.get(data["status"])),
+    ]
+    meta = [f"recipients: {data.get('recipient_count', 0):,}"]
+    if data.get("tag"):
+        meta.append(f"tag: {data['tag']}")
+    meta.append(f"created {_short_ts(data.get('created_at'))}")
+    parts.append(typer.style("  " + "  ·  ".join(meta), dim=True))
+    stats = data.get("stats")
+    if stats:
+        total = data.get("recipient_count") or sum(stats.get(s, 0) for s in _FUNNEL_ORDER)
+        parts += ["", _breakdown(stats, _FUNNEL_ORDER, total, _FUNNEL_COLORS)]
+    return "\n".join(parts)
+
+
+def _render_list_detail(data: dict) -> str:
+    order = ["active", "unconfirmed", "unsubscribed", "bounced", "complained"]
+    subs = data.get("subscribers", {})
+    total = sum(subs.get(s, 0) for s in order)
+    parts = [typer.style(data["name"], bold=True) + typer.style(f"  ({data['slug']})", dim=True)]
+    if data.get("subscribe_url"):
+        parts.append(typer.style("  subscribe: ", dim=True) + data["subscribe_url"])
+    parts += ["", _breakdown(subs, order, total, _STATUS_COLORS), ""]
+    parts.append(
+        "  "
+        + typer.style(f"{total:,} subscribers", bold=True)
+        + typer.style(f"  ·  {subs.get('active', 0):,} active", fg="green")
+    )
+    return "\n".join(parts)
+
+
+def _render_subscriber(data: dict) -> str:
+    head = typer.style(data["email"], bold=True)
+    if data.get("name"):
+        head += f"  {data['name']}"
+    parts = [
+        head,
+        typer.style(data["id"], dim=True)
+        + "  status "
+        + typer.style(data["status"], fg=_STATUS_COLORS.get(data["status"])),
+    ]
+    if data.get("tags"):
+        parts.append(typer.style("  tags: ", dim=True) + ", ".join(data["tags"]))
+    ts = [
+        t
+        for t in (
+            f"joined {_short_ts(data['created_at'])}" if data.get("created_at") else "",
+            f"confirmed {_short_ts(data['confirmed_at'])}" if data.get("confirmed_at") else "",
+            f"unsubscribed {_short_ts(data['unsubscribed_at'])}" if data.get("unsubscribed_at") else "",
+        )
+        if t
+    ]
+    if ts:
+        parts.append(typer.style("  " + "  ·  ".join(ts), dim=True))
+    return "\n".join(parts)
 
 
 def _load_env_file(path: Path) -> None:
@@ -190,12 +333,13 @@ def status():
     if STATE["json"]:
         typer.echo(json.dumps(info, indent=2))
     else:
-        typer.echo(f"server:        {info['url']}  ({source})")
-        typer.echo(f"reachable:     {'yes' if info['reachable'] else 'no'}")
-        typer.echo(f"authenticated: {'yes' if info['authenticated'] else 'no'}")
+        yn = lambda ok: typer.style("yes", fg="green") if ok else typer.style("no", fg="red")  # noqa: E731
+        typer.echo(f"server:        {info['url']}  " + typer.style(f"({source})", dim=True))
+        typer.echo(f"reachable:     {yn(info['reachable'])}")
+        typer.echo(f"authenticated: {yn(info['authenticated'])}")
         if info.get("authenticated"):
             typer.echo(f"lists:         {info['lists']}")
-            typer.echo(f"active subs:   {info['active_subscribers']}")
+            typer.echo("active subs:   " + typer.style(str(info["active_subscribers"]), bold=True))
     raise typer.Exit(0 if info["authenticated"] else 1)
 
 
@@ -527,7 +671,9 @@ def lists_create(name: str, slug: str = typer.Option(None)):
 
 @lists_app.command("show")
 def lists_show(ref: str):
-    _emit(_call("GET", f"/v1/lists/{ref}"))
+    """Show a list with its subscriber breakdown by status."""
+    data = _call("GET", f"/v1/lists/{ref}")
+    _emit(data, _render_list_detail(data))
 
 
 @lists_app.command("edit")
@@ -606,6 +752,14 @@ def subs_list(
     _emit(data, human)
 
 
+@subs_app.command("show")
+def subs_show(ref: str, list_ref: str = typer.Option("default", "--list")):
+    """Show one subscriber: status, tags, and key dates."""
+    sub_id = _resolve_subscriber(list_ref, ref)
+    data = _call("GET", f"/v1/subscribers/{sub_id}")
+    _emit(data, _render_subscriber(data))
+
+
 @subs_app.command("rm")
 def subs_rm(ref: str, list_ref: str = typer.Option("default", "--list")):
     sub_id = _resolve_subscriber(list_ref, ref)
@@ -672,7 +826,8 @@ def campaigns_list(list_ref: str = typer.Option(None, "--list"), status: str = t
         params.append(f"status={status}")
     query = ("?" + "&".join(params)) if params else ""
     data = _call("GET", f"/v1/campaigns{query}")
-    _emit(data, _table(data["campaigns"], ["id", "subject", "status", "recipient_count", "created_at"]))
+    rows = [{**c, "created_at": _short_ts(c.get("created_at"))} for c in data["campaigns"]]
+    _emit(data, _table(rows, ["id", "subject", "status", "recipient_count", "created_at"]))
 
 
 @campaigns_app.command("create")
@@ -692,7 +847,9 @@ def campaigns_create(
 
 @campaigns_app.command("show")
 def campaigns_show(campaign_id: str):
-    _emit(_call("GET", f"/v1/campaigns/{campaign_id}"))
+    """Show a campaign with its delivery funnel (once sent)."""
+    data = _call("GET", f"/v1/campaigns/{campaign_id}")
+    _emit(data, _render_campaign_detail(data))
 
 
 @campaigns_app.command("edit")
@@ -764,22 +921,9 @@ def campaigns_send(
 
 @campaigns_app.command("stats")
 def campaigns_stats(campaign_id: str):
+    """Show a campaign's delivery funnel with rates."""
     data = _call("GET", f"/v1/campaigns/{campaign_id}/stats")
-    human = "\n".join(
-        f"{k}: {data[k]}"
-        for k in (
-            "status",
-            "recipient_count",
-            "pending",
-            "sent",
-            "delivered",
-            "bounced",
-            "complained",
-            "failed",
-            "suppressed",
-        )
-    )
-    _emit(data, human)
+    _emit(data, _render_campaign_stats(data))
 
 
 @campaigns_app.command("rm")
