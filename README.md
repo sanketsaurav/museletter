@@ -433,21 +433,37 @@ museletter print-token           print a connect token for a configured server
 museletter service <cmd>         install|restart|uninstall|status (launchd/systemd)
 
 museletter connect <token|--url> point the CLI at a server, save a profile
-museletter status                server, reachability, auth, counts
+museletter profiles <cmd>        list|use|rm (switch between servers)
+museletter status                server, reachability, auth, per-list counts
 museletter doctor                DNS/DKIM/DMARC/SES/config health checks
 museletter health                liveness of the configured server
 museletter docs                  print this README (offline, agent-readable)
 museletter preview               open every reader-facing surface in a browser
 museletter skill install         install the agent skill into .claude/skills
 
-museletter lists <cmd>           list|create|edit|show|rm
+museletter lists <cmd>           list|use|create|edit|show|rm
 museletter subs <cmd>            add|show|list|rm|tag|untag|import|export
-museletter tags <cmd>            list|create
+museletter tags <cmd>            list|create|rm
 museletter campaigns <cmd>       create|show|edit|preview|test|send|stats|rm
 museletter suppressions <cmd>    list|add|rm
 ```
 
 Run any command with `--help` for its flags, or `--json` for machine output.
+
+## Multiple newsletters
+
+Two shapes, depending on whether they share a sender identity:
+
+- **Same sender, several audiences** are separate **lists** on one server.
+  `museletter lists use <slug>` pins the newsletter that `--list` defaults to
+  (like a current branch), so `subs` / `campaigns` / `tags` target it without
+  the flag; `--list` still overrides per command, and `museletter status` shows
+  the active list and per-list subscriber counts. `MUSELETTER_LIST` overrides it
+  for scripts and agents.
+- **Different sender domains** are separate **servers** (a museletter server has
+  one `from_email`). `museletter connect --name <name>` saves each as a profile;
+  `museletter profiles list|use|rm` switches between them, or `--profile <name>`
+  selects one per command.
 
 ## Troubleshooting
 
