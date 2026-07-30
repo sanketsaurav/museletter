@@ -13,7 +13,7 @@ I'm building Museletter to use it on my website [sanketsaurav.com](https://sanke
 
 - subscribers, lists, and tags (with CSV import/export)
 - a public subscribe endpoint with double opt-in
-- Markdown campaigns rendered into a cleann email template
+- Markdown campaigns rendered into a clean email template
 - RFC 8058 one-click unsubscribe, injected automatically on every send
 - automatic bounce/complaint suppression via SES to SNS webhooks
 - a crash-safe send ledger that respects SES rate limits and resumes mid-blast
