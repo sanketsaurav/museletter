@@ -18,6 +18,7 @@ campaigns_app = typer.Typer(help="Manage campaigns", no_args_is_help=True)
 suppressions_app = typer.Typer(help="Manage the suppression list", no_args_is_help=True)
 skill_app = typer.Typer(help="Install the museletter agent skill", no_args_is_help=True)
 service_app = typer.Typer(help="Run Museletter as a background service", no_args_is_help=True)
+profiles_app = typer.Typer(help="Manage saved server profiles", no_args_is_help=True)
 app.add_typer(lists_app, name="lists")
 app.add_typer(subs_app, name="subs")
 app.add_typer(tags_app, name="tags")
@@ -25,6 +26,7 @@ app.add_typer(campaigns_app, name="campaigns")
 app.add_typer(suppressions_app, name="suppressions")
 app.add_typer(skill_app, name="skill")
 app.add_typer(service_app, name="service")
+app.add_typer(profiles_app, name="profiles")
 
 STATE: dict = {"json": False, "profile": None}
 
@@ -55,6 +57,22 @@ def _resolve():
     except clientconf.ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
+
+
+def _list_ref(explicit: str | None) -> str:
+    """Which list a command targets: an explicit --list, else MUSELETTER_LIST,
+    else the profile's active list (`lists use`), else 'default'."""
+    if explicit:
+        return explicit
+    if os.environ.get("MUSELETTER_LIST"):
+        return os.environ["MUSELETTER_LIST"]
+    if os.environ.get("MUSELETTER_URL"):  # env-configured server has no saved profile
+        return "default"
+    return clientconf.active_list(STATE["profile"]) or "default"
+
+
+# Shared --list option: defaults to the active list (`lists use`) when omitted.
+_LIST_OPT = typer.Option(None, "--list", help="newsletter slug (default: the active list)")
 
 
 def _client() -> httpx.Client:
@@ -292,6 +310,55 @@ def connect(
     typer.echo(f"connected to {url} (profile '{name}', saved to {clientconf.CONFIG_PATH})")
 
 
+@profiles_app.command("list")
+def profiles_list():
+    """List saved server profiles (the default is marked with *)."""
+    config = clientconf.load_config()
+    profs = config.get("profiles", {})
+    default = config.get("default")
+    if STATE["json"]:
+        typer.echo(
+            json.dumps(
+                {
+                    "default": default,
+                    "profiles": {n: {"url": p.get("url"), "list": p.get("list")} for n, p in profs.items()},
+                },
+                indent=2,
+            )
+        )
+        return
+    if not profs:
+        typer.echo("no profiles; run `museletter connect <token>`")
+        return
+    rows = [
+        {"name": ("* " if n == default else "  ") + n, "url": p.get("url", ""), "list": p.get("list") or "-"}
+        for n, p in profs.items()
+    ]
+    typer.echo(_table(rows, ["name", "url", "list"]))
+
+
+@profiles_app.command("use")
+def profiles_use(name: str):
+    """Switch the default server profile."""
+    try:
+        clientconf.set_default_profile(name)
+    except clientconf.ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"default profile is now '{name}'")
+
+
+@profiles_app.command("rm")
+def profiles_rm(name: str):
+    """Remove a saved server profile."""
+    try:
+        clientconf.remove_profile(name)
+    except clientconf.ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"removed profile '{name}'")
+
+
 @app.command("print-token")
 def print_token():
     """Print a connect token for this server's configured URL + API key (run on the server)."""
@@ -327,6 +394,10 @@ def status():
                     data = lists.json()["lists"]
                     info["lists"] = len(data)
                     info["active_subscribers"] = sum(item.get("active_subscribers", 0) for item in data)
+                    info["by_list"] = [
+                        {"slug": item.get("slug", "-"), "active": item.get("active_subscribers", 0)}
+                        for item in data
+                    ]
     except httpx.HTTPError as exc:
         info["error"] = str(exc)
 
@@ -334,12 +405,16 @@ def status():
         typer.echo(json.dumps(info, indent=2))
     else:
         yn = lambda ok: typer.style("yes", fg="green") if ok else typer.style("no", fg="red")  # noqa: E731
+        active = clientconf.active_list(STATE["profile"]) if source.startswith("profile:") else None
         typer.echo(f"server:        {info['url']}  " + typer.style(f"({source})", dim=True))
         typer.echo(f"reachable:     {yn(info['reachable'])}")
         typer.echo(f"authenticated: {yn(info['authenticated'])}")
+        typer.echo("active list:   " + (active or typer.style("default", dim=True)))
         if info.get("authenticated"):
-            typer.echo(f"lists:         {info['lists']}")
             typer.echo("active subs:   " + typer.style(str(info["active_subscribers"]), bold=True))
+            for item in info.get("by_list", []):
+                pointer = "→" if item["slug"] == active else " "
+                typer.echo(f"  {pointer} " + item["slug"].ljust(20) + str(item["active"]))
     raise typer.Exit(0 if info["authenticated"] else 1)
 
 
@@ -377,17 +452,24 @@ def doctor():
     if STATE["json"]:
         typer.echo(json.dumps(data, indent=2))
         raise typer.Exit(0 if data["status"] != "fail" else 1)
-    icons = {"ok": "✓", "warn": "!", "fail": "✗"}
+    icons = {
+        "ok": typer.style("✓", fg="green"),
+        "warn": typer.style("!", fg="yellow"),
+        "fail": typer.style("✗", fg="red"),
+    }
+    colors = {"ok": "green", "warn": "yellow", "fail": "red"}
     for check in data["checks"]:
         typer.echo(f"{icons[check['status']]} [{check['name']}] {check['detail']}")
-    typer.echo(f"\noverall: {data['status']}")
+    typer.echo("\noverall: " + typer.style(data["status"], fg=colors.get(data["status"]), bold=True))
     raise typer.Exit(0 if data["status"] != "fail" else 1)
 
 
 @app.command()
 def health():
     """Check that the server is up."""
-    _emit(_call("GET", "/health"))
+    data = _call("GET", "/health")
+    label = typer.style("ok", fg="green") if data.get("ok") else typer.style("down", fg="red")
+    _emit(data, f"{label}  {data.get('name', 'museletter')} {data.get('version', '')}".rstrip())
 
 
 def _read_readme() -> str:
@@ -660,6 +742,25 @@ def lists_list():
     _emit(data, _table(data["lists"], ["id", "slug", "name", "active_subscribers"]))
 
 
+@lists_app.command("use")
+def lists_use(
+    slug: str = typer.Argument(None, help="list slug to make active; omit or 'none' to clear"),
+):
+    """Pin the newsletter that --list defaults to for this server (like a current branch)."""
+    clear = slug in (None, "", "none")
+    if not clear:
+        slug = _call("GET", f"/v1/lists/{slug}")["slug"]  # 404s if the slug is unknown
+    try:
+        name = clientconf.set_active_list(None if clear else slug, STATE["profile"])
+    except clientconf.ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    if clear:
+        typer.echo(f"cleared active list for profile '{name}' (commands now default to 'default')")
+    else:
+        typer.echo(f"active list for profile '{name}' is now '{slug}'")
+
+
 @lists_app.command("create")
 def lists_create(name: str, slug: str = typer.Option(None)):
     body = {"name": name}
@@ -720,24 +821,26 @@ def _resolve_subscriber(list_ref: str, ref: str) -> str:
 @subs_app.command("add")
 def subs_add(
     email: str,
-    list_ref: str = typer.Option("default", "--list"),
+    list_ref: str = _LIST_OPT,
     name: str = typer.Option("", "--name"),
     tag: list[str] = typer.Option([], "--tag"),
 ):
+    list_ref = _list_ref(list_ref)
     data = _call("POST", f"/v1/lists/{list_ref}/subscribers", {"email": email, "name": name, "tags": tag})
     note = f" ({data['warning']})" if "warning" in data else ""
-    _emit(data, f"added {data['email']} [{data['id']}]{note}")
+    _emit(data, f"added {data['email']} [{data['id']}] to {list_ref}{note}")
 
 
 @subs_app.command("list")
 def subs_list(
-    list_ref: str = typer.Option("default", "--list"),
+    list_ref: str = _LIST_OPT,
     status: str = typer.Option(None),
     tag: str = typer.Option(None),
     q: str = typer.Option(None),
     limit: int = typer.Option(100),
     offset: int = typer.Option(0),
 ):
+    list_ref = _list_ref(list_ref)
     params = {"limit": limit, "offset": offset}
     if status:
         params["status"] = status
@@ -753,49 +856,55 @@ def subs_list(
 
 
 @subs_app.command("show")
-def subs_show(ref: str, list_ref: str = typer.Option("default", "--list")):
+def subs_show(ref: str, list_ref: str = _LIST_OPT):
     """Show one subscriber: status, tags, and key dates."""
+    list_ref = _list_ref(list_ref)
     sub_id = _resolve_subscriber(list_ref, ref)
     data = _call("GET", f"/v1/subscribers/{sub_id}")
     _emit(data, _render_subscriber(data))
 
 
 @subs_app.command("rm")
-def subs_rm(ref: str, list_ref: str = typer.Option("default", "--list")):
+def subs_rm(ref: str, list_ref: str = _LIST_OPT):
+    list_ref = _list_ref(list_ref)
     sub_id = _resolve_subscriber(list_ref, ref)
     _call("DELETE", f"/v1/subscribers/{sub_id}")
     typer.echo(f"deleted {sub_id}")
 
 
 @subs_app.command("tag")
-def subs_tag(ref: str, tag: str, list_ref: str = typer.Option("default", "--list")):
+def subs_tag(ref: str, tag: str, list_ref: str = _LIST_OPT):
+    list_ref = _list_ref(list_ref)
     sub_id = _resolve_subscriber(list_ref, ref)
     data = _call("POST", f"/v1/subscribers/{sub_id}/tags", {"name": tag})
     _emit(data, f"tagged {data['email']}: {', '.join(data['tags'])}")
 
 
 @subs_app.command("untag")
-def subs_untag(ref: str, tag: str, list_ref: str = typer.Option("default", "--list")):
+def subs_untag(ref: str, tag: str, list_ref: str = _LIST_OPT):
+    list_ref = _list_ref(list_ref)
     sub_id = _resolve_subscriber(list_ref, ref)
     data = _call("DELETE", f"/v1/subscribers/{sub_id}/tags/{tag}")
     _emit(data, f"untagged {data['email']}: {', '.join(data['tags']) or '(no tags)'}")
 
 
 @subs_app.command("import")
-def subs_import(file: Path, list_ref: str = typer.Option("default", "--list")):
+def subs_import(file: Path, list_ref: str = _LIST_OPT):
     """Import subscribers from a CSV file (email[,name,tags,status])."""
+    list_ref = _list_ref(list_ref)
     csv_text = sys.stdin.read() if str(file) == "-" else file.read_text()
     data = _call("POST", f"/v1/lists/{list_ref}/subscribers/import", {"csv": csv_text})
     _emit(
         data,
-        f"imported {data['imported']}, skipped {data['skipped_existing']} existing, "
+        f"imported {data['imported']} into {list_ref}, skipped {data['skipped_existing']} existing, "
         f"{data['skipped_invalid']} invalid",
     )
 
 
 @subs_app.command("export")
-def subs_export(list_ref: str = typer.Option("default", "--list")):
+def subs_export(list_ref: str = _LIST_OPT):
     """Export subscribers as CSV to stdout."""
+    list_ref = _list_ref(list_ref)
     typer.echo(_request("GET", f"/v1/lists/{list_ref}/subscribers/export").text, nl=False)
 
 
@@ -803,15 +912,30 @@ def subs_export(list_ref: str = typer.Option("default", "--list")):
 
 
 @tags_app.command("list")
-def tags_list(list_ref: str = typer.Option("default", "--list")):
+def tags_list(list_ref: str = _LIST_OPT):
+    list_ref = _list_ref(list_ref)
     data = _call("GET", f"/v1/lists/{list_ref}/tags")
     _emit(data, _table(data["tags"], ["id", "name", "subscriber_count"]))
 
 
 @tags_app.command("create")
-def tags_create(name: str, list_ref: str = typer.Option("default", "--list")):
+def tags_create(name: str, list_ref: str = _LIST_OPT):
+    list_ref = _list_ref(list_ref)
     data = _call("POST", f"/v1/lists/{list_ref}/tags", {"name": name})
     _emit(data, f"created tag {data['id']} ({data['name']})")
+
+
+@tags_app.command("rm")
+def tags_rm(name: str, list_ref: str = _LIST_OPT):
+    """Delete a tag from a list (by name or id)."""
+    list_ref = _list_ref(list_ref)
+    tags = _call("GET", f"/v1/lists/{list_ref}/tags")["tags"]
+    match = next((t for t in tags if name in (t["name"], t["id"])), None)
+    if not match:
+        typer.echo(f"no tag '{name}' in list '{list_ref}'", err=True)
+        raise typer.Exit(1)
+    _call("DELETE", f"/v1/tags/{match['id']}")
+    typer.echo(f"deleted tag {match['name']}")
 
 
 # ---------- campaigns ----------
@@ -826,17 +950,22 @@ def campaigns_list(list_ref: str = typer.Option(None, "--list"), status: str = t
         params.append(f"status={status}")
     query = ("?" + "&".join(params)) if params else ""
     data = _call("GET", f"/v1/campaigns{query}")
-    rows = [{**c, "created_at": _short_ts(c.get("created_at"))} for c in data["campaigns"]]
-    _emit(data, _table(rows, ["id", "subject", "status", "recipient_count", "created_at"]))
+    slugs = {lst["id"]: lst["slug"] for lst in _call("GET", "/v1/lists")["lists"]}
+    rows = [
+        {**c, "list": slugs.get(c["list_id"], "-"), "created_at": _short_ts(c.get("created_at"))}
+        for c in data["campaigns"]
+    ]
+    _emit(data, _table(rows, ["id", "list", "subject", "status", "recipient_count", "created_at"]))
 
 
 @campaigns_app.command("create")
 def campaigns_create(
     subject: str = typer.Option(..., "--subject"),
     file: Path = typer.Option(..., "--file", help="markdown file, or - for stdin"),
-    list_ref: str = typer.Option("default", "--list"),
+    list_ref: str = _LIST_OPT,
     tag: str = typer.Option(None, "--tag", help="only send to subscribers with this tag"),
 ):
+    list_ref = _list_ref(list_ref)
     markdown = sys.stdin.read() if str(file) == "-" else file.read_text()
     body = {"subject": subject, "body_markdown": markdown}
     if tag:

@@ -538,6 +538,64 @@ def test_subs_show(api):
     assert "ada@x.com" in result.output and "active" in result.output and "vip" in result.output
 
 
+def test_lists_use_sets_active_list(api):
+    api[("GET", "/v1/lists/field-notes")] = {"id": "list_1", "slug": "field-notes", "name": "Field Notes"}
+    result = runner.invoke(cli_app, ["lists", "use", "field-notes"])
+    assert result.exit_code == 0, result.output
+    assert clientconf.active_list() == "field-notes"
+
+
+def test_active_list_is_the_default_target(api):
+    api[("GET", "/v1/lists/field-notes")] = {"id": "list_1", "slug": "field-notes", "name": "Field Notes"}
+    runner.invoke(cli_app, ["lists", "use", "field-notes"])
+    api[("GET", "/v1/lists/field-notes/subscribers")] = {
+        "subscribers": [], "total": 0, "limit": 100, "offset": 0,
+    }  # fmt: skip
+    runner.invoke(cli_app, ["subs", "list"])  # no --list
+    assert api["calls"][-1].url.path == "/v1/lists/field-notes/subscribers"
+    # an explicit --list still wins
+    api[("GET", "/v1/lists/other/subscribers")] = {"subscribers": [], "total": 0, "limit": 100, "offset": 0}
+    runner.invoke(cli_app, ["subs", "list", "--list", "other"])
+    assert api["calls"][-1].url.path == "/v1/lists/other/subscribers"
+
+
+def test_profiles_list_use_rm():
+    clientconf.save_profile("prod", "https://a", "k1", make_default=False)
+    listed = runner.invoke(cli_app, ["profiles", "list"])
+    assert listed.exit_code == 0 and "prod" in listed.output
+    runner.invoke(cli_app, ["profiles", "use", "prod"])
+    assert clientconf.load_config()["default"] == "prod"
+    removed = runner.invoke(cli_app, ["profiles", "rm", "prod"])
+    assert removed.exit_code == 0 and "prod" not in clientconf.load_config()["profiles"]
+
+
+def test_tags_rm_resolves_name_to_id(api):
+    api[("GET", "/v1/lists/default/tags")] = {"tags": [{"id": "tag_1", "name": "vip", "subscriber_count": 3}]}
+    api[("DELETE", "/v1/tags/tag_1")] = {}
+    result = runner.invoke(cli_app, ["tags", "rm", "vip"])
+    assert result.exit_code == 0, result.output
+    assert "deleted tag vip" in result.output
+    assert api["calls"][-1].method == "DELETE" and api["calls"][-1].url.path == "/v1/tags/tag_1"
+
+
+def test_campaigns_list_shows_newsletter(api):
+    api[("GET", "/v1/campaigns")] = {
+        "campaigns": [{"id": "cmp_1", "list_id": "list_1", "subject": "Hi", "status": "sent",
+                       "recipient_count": 10, "created_at": "2026-07-29T10:00:00Z"}]
+    }  # fmt: skip
+    api[("GET", "/v1/lists")] = {"lists": [{"id": "list_1", "slug": "field-notes", "active_subscribers": 10}]}
+    result = runner.invoke(cli_app, ["campaigns", "list"])
+    assert result.exit_code == 0, result.output
+    assert "LIST" in result.output and "field-notes" in result.output
+
+
+def test_health_friendly_line(api):
+    api[("GET", "/health")] = {"ok": True, "name": "museletter", "version": "0.1.0"}
+    result = runner.invoke(cli_app, ["health"])
+    assert result.exit_code == 0
+    assert "ok" in result.output and "0.1.0" in result.output
+
+
 def test_lists_edit_renames(api):
     api[("PATCH", "/v1/lists/default")] = {"id": "list_1", "slug": "field-notes", "name": "Field Notes"}
     result = runner.invoke(

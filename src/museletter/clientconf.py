@@ -60,10 +60,16 @@ def _dumps(config: dict) -> str:
     for name, prof in config.get("profiles", {}).items():
         lines.append("")
         lines.append(f"[profiles.{name}]")
-        for key in ("url", "api_key"):
+        for key in ("url", "api_key", "list"):
             if prof.get(key):
                 lines.append(f"{key} = {q(prof[key])}")
     return "\n".join(lines) + "\n"
+
+
+def _write(config: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(_dumps(config))
+    CONFIG_PATH.chmod(0o600)
 
 
 def load_config() -> dict:
@@ -116,3 +122,48 @@ def resolve(profile: str | None = None) -> tuple[str, str, str]:
         available = ", ".join(config.get("profiles", {})) or "none"
         raise ConfigError(f"unknown profile '{name}' (configured: {available})")
     return prof["url"].rstrip("/"), prof.get("api_key", ""), f"profile:{name}"
+
+
+def _profile_name(profile: str | None) -> str:
+    config = load_config()
+    name = profile or os.environ.get("MUSELETTER_PROFILE") or config.get("default")
+    if not name or name not in config.get("profiles", {}):
+        raise ConfigError("no server profile configured; run `museletter connect <token>` first")
+    return name
+
+
+def active_list(profile: str | None = None) -> str | None:
+    """The list slug pinned for the active profile (via `lists use`), if any."""
+    config = load_config()
+    name = profile or os.environ.get("MUSELETTER_PROFILE") or config.get("default")
+    return config.get("profiles", {}).get(name or "", {}).get("list")
+
+
+def set_active_list(slug: str | None, profile: str | None = None) -> str:
+    """Pin (slug) or clear (None) the default list for the active profile. Returns the profile name."""
+    config = load_config()
+    name = _profile_name(profile)
+    if slug:
+        config["profiles"][name]["list"] = slug
+    else:
+        config["profiles"][name].pop("list", None)
+    _write(config)
+    return name
+
+
+def set_default_profile(name: str) -> None:
+    config = load_config()
+    if name not in config.get("profiles", {}):
+        raise ConfigError(f"unknown profile '{name}'")
+    config["default"] = name
+    _write(config)
+
+
+def remove_profile(name: str) -> None:
+    config = load_config()
+    if name not in config.get("profiles", {}):
+        raise ConfigError(f"unknown profile '{name}'")
+    del config["profiles"][name]
+    if config.get("default") == name:
+        config["default"] = next(iter(config["profiles"]), None)
+    _write(config)
