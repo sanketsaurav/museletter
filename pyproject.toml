@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "museletter"
-version = "1.0.0"
+version = "1.0.1"
 description = "A headless, agent-first newsletter engine. One container, one SQLite database, Amazon SES."
 readme = "README.md"
 license = { file = "LICENSE" }

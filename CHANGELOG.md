@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.1 - 2026-07-29
+
+### Fixes
+
+- The logo now renders on the PyPI project page. The README's relative SVG
+  worked on GitHub but not on PyPI (its image proxy needs an absolute URL and
+  does not render SVG), so it now falls back to an absolute PNG.
+
 ## v1.0.0 - 2026-07-29
 
 The first public release. Museletter is a headless, agent-first newsletter

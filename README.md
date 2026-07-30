@@ -1,6 +1,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/museletter-lockup-dark.svg">
-  <img alt="Museletter" src="assets/museletter-lockup.svg" height="40">
+  <source media="(prefers-color-scheme: light)" srcset="assets/museletter-lockup.svg">
+  <img alt="Museletter" src="https://raw.githubusercontent.com/sanketsaurav/museletter/master/assets/museletter-lockup.png" height="40">
 </picture>
 
 <p></p>
