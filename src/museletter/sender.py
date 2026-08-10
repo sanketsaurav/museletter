@@ -8,11 +8,12 @@ rows on restart; delivery is at-least-once with the ledger as dedupe.
 
 import asyncio
 import logging
+from string import Template
 
 import httpx
 
-from .db import utcnow
-from .render import personalize_email, render_campaign
+from .db import BUILTIN_TEMPLATE_ID, utcnow
+from .render import personalize_email, render_campaign, validate_template
 from .ses import SESError
 from .tokens import make_token
 
@@ -59,7 +60,8 @@ class SenderLoop:
         any work was done."""
         db = self.app.state.db
         async with db.execute(
-            "SELECT c.*, l.name AS list_name FROM campaigns c JOIN lists l ON l.id = c.list_id "
+            "SELECT c.*, l.name AS list_name, l.template_id AS list_template_id "
+            "FROM campaigns c JOIN lists l ON l.id = c.list_id "
             "WHERE c.status = 'sending' ORDER BY c.started_at LIMIT 1"
         ) as cur:
             campaign = await cur.fetchone()
@@ -82,6 +84,7 @@ class SenderLoop:
         # Render the Markdown once for the whole campaign; only per-recipient
         # personalization (cheap token substitution) runs inside the loop.
         body = render_campaign(campaign["subject"], campaign["body_markdown"])
+        template = await self._campaign_template(campaign)
 
         for recipient in batch:
             if self._stopped:
@@ -111,6 +114,7 @@ class SenderLoop:
                 unsubscribe_url=unsubscribe_url,
                 list_name=campaign["list_name"],
                 postal_address=settings.postal_address,
+                template=template,
             )
             headers = {
                 "List-Unsubscribe": f"<{unsubscribe_url}>",
@@ -160,6 +164,27 @@ class SenderLoop:
             await self._mark(recipient, "sent", message_id=message_id, only_pending=True)
             await asyncio.sleep(delay)
         return True
+
+    async def _campaign_template(self, campaign) -> Template | None:
+        """Compiled custom template for a campaign, or None for the built-in.
+        The API validates templates on write and blocks deleting a referenced
+        one, so a missing or invalid row here means manual DB surgery; fall back
+        to the built-in (loudly) rather than wedge the whole send queue."""
+        template_id = campaign["template_id"] or campaign["list_template_id"]
+        if not template_id or template_id == BUILTIN_TEMPLATE_ID:
+            return None
+        async with self.app.state.db.execute(
+            "SELECT html FROM templates WHERE id = ?", (template_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or validate_template(row["html"]):
+            logger.error(
+                "template %s for campaign %s is missing or invalid; using the built-in default",
+                template_id,
+                campaign["id"],
+            )
+            return None
+        return Template(row["html"])
 
     async def _handle_send_error(self, recipient, attempts: int, error: str) -> None:
         if attempts >= MAX_ATTEMPTS:

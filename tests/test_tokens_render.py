@@ -90,15 +90,23 @@ def test_render_campaign_parses_markdown_once_for_many_recipients(monkeypatch):
 
 def test_build_email_matches_split_render_path():
     # The convenience wrapper must produce byte-identical output to the two-step path.
-    args = {
-        "name": "Ada",
-        "email": "a@x.com",
-        "unsubscribe_url": "http://x/u",
-        "list_name": "L",
-        "postal_address": "P",
-    }
-    combined = build_email("Hi {{name}}", "Body {{name}}", **args)
-    split = personalize_email(render_campaign("Hi {{name}}", "Body {{name}}"), **args)
+    combined = build_email(
+        "Hi {{name}}",
+        "Body {{name}}",
+        name="Ada",
+        email="a@x.com",
+        unsubscribe_url="http://x/u",
+        list_name="L",
+        postal_address="P",
+    )
+    split = personalize_email(
+        render_campaign("Hi {{name}}", "Body {{name}}"),
+        name="Ada",
+        email="a@x.com",
+        unsubscribe_url="http://x/u",
+        list_name="L",
+        postal_address="P",
+    )
     assert combined == split
 
 

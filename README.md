@@ -297,7 +297,7 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_PUBLIC_SUBSCRIBE` | no | `false` disables the public `/subscribe` endpoint (add subscribers via the admin API instead) |
 | `MUSELETTER_TURNSTILE_SECRET` | no | Cloudflare Turnstile secret; when set, `/subscribe` requires a valid Turnstile token |
 | `MUSELETTER_CONFIRMATION_COOLDOWN` | no | min seconds between confirmation emails to one address, default 3600 |
-| `MUSELETTER_TEMPLATE_DIR` | no | directory of custom email/page templates to use instead of the built-ins |
+| `MUSELETTER_TEMPLATE_DIR` | no | server-side directory overriding the packaged templates (issue templates are better managed with `museletter templates`) |
 | `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` (the image uses `/data/museletter.db`) |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
 
@@ -416,8 +416,50 @@ so you can check both themes and inspect any surface on its own.
 
 The **publication name** on every surface is just the list's name, so rename it
 with `museletter lists edit <slug> --name "Field Notes"`. The **mark and accent
-color** are Museletter's brand by default. To change anything else, eject the
-templates and point the server at your copies:
+color** are Museletter's brand by default. To change anything else, customize
+the templates.
+
+### Issue templates, from the CLI
+
+The issue email's shell (layout, colors, logo - everything around your
+Markdown) is a template, and templates live on the server and are managed
+entirely through the CLI, so a running server never needs touching. Museletter
+ships a built-in `default`; copy it, restyle the copy, and email yourself a
+sample issue to judge it in a real inbox:
+
+```bash
+museletter templates create mine --from default   # duplicate the built-in
+museletter templates show mine --out mine.html    # fetch the HTML to edit
+# restyle mine.html (or hand it to your agent), then push it back and test:
+museletter templates edit mine --file mine.html
+museletter templates test mine --to you@example.com
+```
+
+A template is one HTML file with `string.Template` placeholders: `$content`
+(the rendered issue) and `$footer` (the unsubscribe link and postal address)
+are required; `$subject` and `$header` are optional. Every create and edit is
+validated - unknown placeholders, a missing `$content`/`$footer`, or a size
+past Gmail's clip point are rejected - and the send path re-checks the
+template as a preflight, so a broken template cannot reach subscribers.
+
+Then pick what renders where; a campaign's own template beats its list's
+default, which beats the built-in:
+
+```bash
+museletter lists edit default --template mine     # default for the whole list
+museletter campaigns create ... --template mine   # or pin a single campaign
+```
+
+Two guardrails to know about: the built-in `default` can be copied but never
+edited or deleted, and changing a template's HTML clears the test-send state
+of every draft that renders through it - the test you approved is always the
+email that goes out.
+
+### Everything else, on the server
+
+The confirmation email and the public pages are packaged templates too.
+Overriding those (or replacing the shipped default issue template itself)
+happens on the server's filesystem:
 
 ```bash
 museletter preview --eject ./templates   # copies email.html, email-system.html, page.html
@@ -449,6 +491,7 @@ museletter lists <cmd>           list|use|create|edit|show|rm
 museletter subs <cmd>            add|show|list|rm|tag|untag|import|export
 museletter tags <cmd>            list|create|rm
 museletter campaigns <cmd>       create|show|edit|preview|test|send|stats|rm
+museletter templates <cmd>       list|create|show|edit|test|rm
 museletter suppressions <cmd>    list|add|rm
 ```
 

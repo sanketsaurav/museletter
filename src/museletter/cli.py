@@ -15,6 +15,7 @@ lists_app = typer.Typer(help="Manage lists", no_args_is_help=True)
 subs_app = typer.Typer(help="Manage subscribers", no_args_is_help=True)
 tags_app = typer.Typer(help="Manage tags", no_args_is_help=True)
 campaigns_app = typer.Typer(help="Manage campaigns", no_args_is_help=True)
+templates_app = typer.Typer(help="Manage email templates", no_args_is_help=True)
 suppressions_app = typer.Typer(help="Manage the suppression list", no_args_is_help=True)
 skill_app = typer.Typer(help="Install the museletter agent skill", no_args_is_help=True)
 service_app = typer.Typer(help="Run Museletter as a background service", no_args_is_help=True)
@@ -23,6 +24,7 @@ app.add_typer(lists_app, name="lists")
 app.add_typer(subs_app, name="subs")
 app.add_typer(tags_app, name="tags")
 app.add_typer(campaigns_app, name="campaigns")
+app.add_typer(templates_app, name="templates")
 app.add_typer(suppressions_app, name="suppressions")
 app.add_typer(skill_app, name="skill")
 app.add_typer(service_app, name="service")
@@ -633,22 +635,16 @@ def preview(
         return
 
     from .api.public import _page
-    from .render import build_email, render_confirmation
+    from .render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, render_confirmation
 
     def page_html(*a, **k) -> str:
         # HTMLResponse.body is typed bytes | memoryview; coerce before decode.
         return bytes(_page(*a, **k).body).decode()
 
     ln, addr = "Your Newsletter", "123 Main St, Your City"
-    issue = (
-        "## A sample issue\n\nHi {{first_name|there}}, this is what an issue looks like: a "
-        "[link](https://example.com), some *emphasis*, and a short list.\n\n"
-        "- the first point\n- the second point\n\n> A pull quote, to show the blockquote style.\n\n"
-        "Inline `code` renders like this. That is the whole system."
-    )
     _, issue_html, _ = build_email(
-        "A sample issue",
-        issue,
+        SAMPLE_ISSUE_SUBJECT,
+        SAMPLE_ISSUE_MARKDOWN,
         name="Ada Lovelace",
         email="ada@example.com",
         unsubscribe_url="#",
@@ -739,7 +735,7 @@ def preview(
 def lists_list():
     """Show all lists."""
     data = _call("GET", "/v1/lists")
-    _emit(data, _table(data["lists"], ["id", "slug", "name", "active_subscribers"]))
+    _emit(data, _table(data["lists"], ["id", "slug", "name", "active_subscribers", "template"]))
 
 
 @lists_app.command("use")
@@ -782,18 +778,24 @@ def lists_edit(
     ref: str,
     name: str = typer.Option(None, "--name", help="new display name (the publication name)"),
     slug: str = typer.Option(None, "--slug", help="new URL slug"),
+    template: str = typer.Option(
+        None, "--template", help="default email template for this list ('default' for the built-in)"
+    ),
 ):
-    """Rename a list or change its slug."""
+    """Rename a list, change its slug, or set its default email template."""
     body = {}
     if name is not None:
         body["name"] = name
     if slug is not None:
         body["slug"] = slug
+    if template is not None:
+        body["template"] = _template_body_value(template)
     if not body:
-        typer.echo("nothing to update (pass --name and/or --slug)", err=True)
+        typer.echo("nothing to update (pass --name, --slug, and/or --template)", err=True)
         raise typer.Exit(1)
     data = _call("PATCH", f"/v1/lists/{ref}", body)
-    _emit(data, f"updated list {data['id']} (name: {data['name']}, slug: {data['slug']})")
+    template_note = f", template: {data['template']}" if data.get("template") else ""
+    _emit(data, f"updated list {data['id']} (name: {data['name']}, slug: {data['slug']}{template_note})")
 
 
 @lists_app.command("rm")
@@ -964,12 +966,17 @@ def campaigns_create(
     file: Path = typer.Option(..., "--file", help="markdown file, or - for stdin"),
     list_ref: str = _LIST_OPT,
     tag: str = typer.Option(None, "--tag", help="only send to subscribers with this tag"),
+    template: str = typer.Option(
+        None, "--template", help="email template for this campaign (default: the list's template)"
+    ),
 ):
     list_ref = _list_ref(list_ref)
     markdown = sys.stdin.read() if str(file) == "-" else file.read_text()
     body = {"subject": subject, "body_markdown": markdown}
     if tag:
         body["tag"] = tag
+    if template:
+        body["template"] = _template_body_value(template)
     data = _call("POST", f"/v1/lists/{list_ref}/campaigns", body)
     _emit(data, f'created draft {data["id"]}: "{data["subject"]}"')
 
@@ -987,6 +994,9 @@ def campaigns_edit(
     subject: str = typer.Option(None, "--subject"),
     file: Path = typer.Option(None, "--file"),
     tag: str = typer.Option(None, "--tag"),
+    template: str = typer.Option(
+        None, "--template", help="email template for this campaign ('none' to use the list's template)"
+    ),
 ):
     body = {}
     if subject is not None:
@@ -995,6 +1005,8 @@ def campaigns_edit(
         body["body_markdown"] = sys.stdin.read() if str(file) == "-" else file.read_text()
     if tag is not None:
         body["tag"] = tag
+    if template is not None:
+        body["template"] = _template_body_value(template)
     if not body:
         typer.echo("nothing to update", err=True)
         raise typer.Exit(1)
@@ -1061,6 +1073,101 @@ def campaigns_rm(campaign_id: str, yes: bool = typer.Option(False, "--yes", "-y"
         raise typer.Exit(1)
     _call("DELETE", f"/v1/campaigns/{campaign_id}")
     typer.echo(f"deleted {campaign_id}")
+
+
+# ---------- templates ----------
+
+
+def _template_body_value(ref: str) -> str:
+    """CLI sentinel: --template none clears the setting (inherit / built-in)."""
+    return "" if ref == "none" else ref
+
+
+@templates_app.command("list")
+def templates_list():
+    """Show all email templates (the built-in default plus your custom ones)."""
+    data = _call("GET", "/v1/templates")
+    rows = [
+        {**t, "builtin": "yes" if t["builtin"] else "", "updated_at": _short_ts(t["updated_at"])}
+        for t in data["templates"]
+    ]
+    _emit(data, _table(rows, ["name", "id", "builtin", "size", "updated_at"]))
+
+
+@templates_app.command("create")
+def templates_create(
+    name: str,
+    file: Path = typer.Option(None, "--file", help="template HTML file, or - for stdin"),
+    from_ref: str = typer.Option(
+        None, "--from", help="duplicate an existing template (e.g. 'default') instead of --file"
+    ),
+):
+    """Create a template from an HTML file, or by copying an existing one."""
+    if (file is None) == (from_ref is None):
+        typer.echo("pass exactly one of --file or --from", err=True)
+        raise typer.Exit(1)
+    body: dict = {"name": name}
+    if file is not None:
+        body["html"] = sys.stdin.read() if str(file) == "-" else file.read_text()
+    else:
+        body["copy_of"] = from_ref
+    data = _call("POST", "/v1/templates", body)
+    _emit(data, f"created template {data['name']} ({data['id']})")
+
+
+@templates_app.command("show")
+def templates_show(ref: str, out: Path = typer.Option(None, "--out", help="write the HTML to a file")):
+    """Show a template, or fetch its HTML with --out to edit locally."""
+    data = _call("GET", f"/v1/templates/{ref}")
+    if out is not None:
+        out.write_text(data["html"])
+        typer.echo(f"wrote {out}")
+        return
+    builtin = "  built-in (read-only; copy it to customize)" if data["builtin"] else ""
+    human = (
+        typer.style(data["name"], bold=True)
+        + typer.style(f"  ({data['id']})", dim=True)
+        + builtin
+        + f"\nsize: {data['size']} bytes"
+        + (f"  ·  updated {_short_ts(data['updated_at'])}" if data["updated_at"] else "")
+        + f"\nfetch the HTML with: museletter templates show {data['name']} --out template.html"
+    )
+    _emit(data, human)
+
+
+@templates_app.command("edit")
+def templates_edit(
+    ref: str,
+    file: Path = typer.Option(None, "--file", help="new template HTML file, or - for stdin"),
+    name: str = typer.Option(None, "--name", help="rename the template"),
+):
+    """Update a template's HTML (drafts using it will need a fresh test send) or rename it."""
+    body: dict = {}
+    if file is not None:
+        body["html"] = sys.stdin.read() if str(file) == "-" else file.read_text()
+    if name is not None:
+        body["name"] = name
+    if not body:
+        typer.echo("nothing to update (pass --file and/or --name)", err=True)
+        raise typer.Exit(1)
+    data = _call("PATCH", f"/v1/templates/{ref}", body)
+    note = " (campaigns using it need a fresh test send)" if "html" in body else ""
+    _emit(data, f"updated template {data['name']}{note}")
+
+
+@templates_app.command("test")
+def templates_test(ref: str, to: str = typer.Option(..., "--to")):
+    """Email yourself a sample issue rendered through the template."""
+    data = _call("POST", f"/v1/templates/{ref}/test", {"to": to})
+    _emit(data, f"test of template '{data['template']}' sent to {data['sent_to']}")
+
+
+@templates_app.command("rm")
+def templates_rm(ref: str, yes: bool = typer.Option(False, "--yes", "-y")):
+    if not yes and not typer.confirm(f"delete template '{ref}'?"):
+        raise typer.Exit(1)
+    _call("DELETE", f"/v1/templates/{ref}")
+    typer.echo(f"deleted {ref}")
 
 
 # ---------- suppressions ----------

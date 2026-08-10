@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS lists (
     id TEXT PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    template_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -52,12 +53,21 @@ CREATE TABLE IF NOT EXISTS suppressions (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    html TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS campaigns (
     id TEXT PRIMARY KEY,
     list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
     subject TEXT NOT NULL,
     body_markdown TEXT NOT NULL,
     tag_id TEXT REFERENCES tags(id) ON DELETE SET NULL,
+    template_id TEXT,
     status TEXT NOT NULL DEFAULT 'draft',
     recipient_count INTEGER NOT NULL DEFAULT 0,
     test_sent_at TEXT,
@@ -101,6 +111,12 @@ CREATE TABLE IF NOT EXISTS idempotency (
 """
 
 SUBSCRIBER_STATUSES = ("unconfirmed", "active", "unsubscribed", "bounced", "complained")
+
+# A template_id column holds a templates.id, the literal 'default' (the packaged
+# built-in, which has no row), or NULL: inherit the list default on campaigns,
+# use the built-in on lists. No FK on purpose - 'default' is virtual; the API
+# guards deletion of referenced templates instead.
+BUILTIN_TEMPLATE_ID = "default"
 CAMPAIGN_STATUSES = ("draft", "sending", "sent", "failed")
 RECIPIENT_STATUSES = ("pending", "sent", "delivered", "bounced", "complained", "failed", "suppressed")
 
@@ -131,6 +147,11 @@ async def _migrate(db: aiosqlite.Connection) -> None:
         columns = {row["name"] for row in await cur.fetchall()}
     if "confirmation_sent_at" not in columns:
         await db.execute("ALTER TABLE subscribers ADD COLUMN confirmation_sent_at TEXT")
+    for table in ("lists", "campaigns"):
+        async with db.execute(f"PRAGMA table_info({table})") as cur:
+            columns = {row["name"] for row in await cur.fetchall()}
+        if "template_id" not in columns:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN template_id TEXT")
 
 
 async def get_meta(db: aiosqlite.Connection, key: str) -> str | None:
