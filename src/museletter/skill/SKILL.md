@@ -57,9 +57,20 @@ your own unsubscribe link.
 Audience targeting: `--list <slug>` picks the list (default list slug: `default`);
 `--tag <tag>` restricts to tagged subscribers.
 
+## Email templates
+
+The HTML shell around an issue is a server-side template, managed from the CLI
+(`museletter templates list|create|show|edit|test|rm`). A built-in `default`
+ships with Museletter; it cannot be edited or deleted, only copied. Campaigns
+render through their own template, else their list's default, else `default`
+(set with `campaigns create/edit --template <name>` and
+`lists edit <slug> --template <name>`). See `recipes/customize-template.md`
+for the full workflow and the template contract.
+
 ## Recipes
 
 - `recipes/publish-new-issue.md` - announce a new blog post end to end
+- `recipes/customize-template.md` - design a custom look for issue emails
 - `recipes/connect-website.md` - wire a website's signup form to the server
 - `recipes/aws-ses-setup.md` - first-time SES + SNS wiring (run once per install)
 - `recipes/migrate-from-another-platform.md` - import from Mailchimp/Buttondown/etc.

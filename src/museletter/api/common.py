@@ -4,6 +4,9 @@ import re
 import aiosqlite
 from fastapi import HTTPException, Request
 
+from ..db import BUILTIN_TEMPLATE_ID
+from ..render import template_source
+
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -53,6 +56,43 @@ async def get_campaign(db: aiosqlite.Connection, campaign_id: str) -> aiosqlite.
     return row
 
 
+def builtin_template() -> dict:
+    """The packaged default campaign template as a virtual, read-only row. It has
+    no DB row so package upgrades (or a MUSELETTER_TEMPLATE_DIR override on the
+    server) keep improving it."""
+    return {
+        "id": BUILTIN_TEMPLATE_ID,
+        "name": BUILTIN_TEMPLATE_ID,
+        "html": template_source("email.html"),
+        "builtin": True,
+        "created_at": None,
+        "updated_at": None,
+    }
+
+
+async def get_template(db: aiosqlite.Connection, ref: str) -> dict:
+    """Look up a template by id or name; 'default' resolves to the built-in."""
+    if ref == BUILTIN_TEMPLATE_ID:
+        return builtin_template()
+    async with db.execute("SELECT * FROM templates WHERE id = ? OR name = ?", (ref, ref)) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"template not found: {ref}")
+    return {**dict(row), "builtin": False}
+
+
+async def template_name(db: aiosqlite.Connection, template_id: str | None) -> str | None:
+    """Display name for a stored template_id; None stays None (unset/inherit),
+    and a dangling id (template deleted after a campaign was sent) becomes None."""
+    if template_id is None:
+        return None
+    if template_id == BUILTIN_TEMPLATE_ID:
+        return BUILTIN_TEMPLATE_ID
+    async with db.execute("SELECT name FROM templates WHERE id = ?", (template_id,)) as cur:
+        row = await cur.fetchone()
+    return row["name"] if row else None
+
+
 async def get_tag(db: aiosqlite.Connection, list_id: str, ref: str) -> aiosqlite.Row | None:
     """Look up a tag by id or name within a list."""
     async with db.execute(
@@ -84,13 +124,14 @@ def subscriber_json(row: aiosqlite.Row, tags: list[str]) -> dict:
     }
 
 
-def campaign_json(row: aiosqlite.Row, tag_name: str | None = None) -> dict:
+def campaign_json(row: aiosqlite.Row, tag_name: str | None = None, template: str | None = None) -> dict:
     return {
         "id": row["id"],
         "list_id": row["list_id"],
         "subject": row["subject"],
         "body_markdown": row["body_markdown"],
         "tag": tag_name,
+        "template": template,
         "status": row["status"],
         "recipient_count": row["recipient_count"],
         "test_sent_at": row["test_sent_at"],

@@ -604,3 +604,113 @@ def test_lists_edit_renames(api):
     assert result.exit_code == 0
     assert "Field Notes" in result.output
     assert json.loads(api["calls"][-1].content) == {"name": "Field Notes", "slug": "field-notes"}
+
+
+TPL_HTML = "<html><body>$content $footer</body></html>"
+
+
+def test_templates_list_table(api):
+    api[("GET", "/v1/templates")] = {
+        "templates": [
+            {"id": "default", "name": "default", "builtin": True, "size": 5000, "updated_at": None},
+            {
+                "id": "tpl_1",
+                "name": "fancy",
+                "builtin": False,
+                "size": 400,
+                "updated_at": "2026-08-10T10:00:00.000Z",
+            },
+        ]
+    }
+    result = runner.invoke(cli_app, ["templates", "list"])
+    assert result.exit_code == 0
+    assert "default" in result.output and "fancy" in result.output and "yes" in result.output
+
+
+def test_templates_create_from_file_and_from_copy(api, tmp_path):
+    api[("POST", "/v1/templates")] = {"id": "tpl_1", "name": "fancy"}
+    source = tmp_path / "t.html"
+    source.write_text(TPL_HTML)
+    result = runner.invoke(cli_app, ["templates", "create", "fancy", "--file", str(source)])
+    assert result.exit_code == 0
+    assert "created template fancy (tpl_1)" in result.output
+    assert json.loads(api["calls"][-1].content) == {"name": "fancy", "html": TPL_HTML}
+
+    result = runner.invoke(cli_app, ["templates", "create", "fancy", "--from", "default"])
+    assert result.exit_code == 0
+    assert json.loads(api["calls"][-1].content) == {"name": "fancy", "copy_of": "default"}
+
+    # Exactly one source is required.
+    for extra in ([], ["--file", str(source), "--from", "default"]):
+        result = runner.invoke(cli_app, ["templates", "create", "fancy", *extra])
+        assert result.exit_code == 1
+        assert "exactly one of --file or --from" in result.output
+
+
+def test_templates_show_writes_html_with_out(api, tmp_path):
+    api[("GET", "/v1/templates/fancy")] = {
+        "id": "tpl_1",
+        "name": "fancy",
+        "builtin": False,
+        "size": len(TPL_HTML),
+        "updated_at": "2026-08-10T10:00:00.000Z",
+        "html": TPL_HTML,
+    }
+    out = tmp_path / "fancy.html"
+    result = runner.invoke(cli_app, ["templates", "show", "fancy", "--out", str(out)])
+    assert result.exit_code == 0
+    assert out.read_text() == TPL_HTML
+
+    result = runner.invoke(cli_app, ["templates", "show", "fancy"])
+    assert result.exit_code == 0
+    assert "fancy" in result.output and "--out" in result.output
+
+
+def test_templates_edit_and_test_and_rm(api, tmp_path):
+    api[("PATCH", "/v1/templates/fancy")] = {"id": "tpl_1", "name": "fancy"}
+    source = tmp_path / "t.html"
+    source.write_text(TPL_HTML)
+    result = runner.invoke(cli_app, ["templates", "edit", "fancy", "--file", str(source)])
+    assert result.exit_code == 0
+    assert "fresh test send" in result.output
+    assert json.loads(api["calls"][-1].content) == {"html": TPL_HTML}
+
+    api[("POST", "/v1/templates/fancy/test")] = {"sent_to": "me@x.com", "template": "fancy"}
+    result = runner.invoke(cli_app, ["templates", "test", "fancy", "--to", "me@x.com"])
+    assert result.exit_code == 0
+    assert "sent to me@x.com" in result.output
+
+    api[("DELETE", "/v1/templates/fancy")] = {}
+    result = runner.invoke(cli_app, ["templates", "rm", "fancy", "-y"])
+    assert result.exit_code == 0
+    assert "deleted fancy" in result.output
+
+
+def test_campaigns_create_and_edit_pass_template(api, tmp_path):
+    api[("POST", "/v1/lists/default/campaigns")] = {"id": "cmp_1", "subject": "s"}
+    body_file = tmp_path / "b.md"
+    body_file.write_text("hello")
+    result = runner.invoke(
+        cli_app,
+        ["campaigns", "create", "--subject", "s", "--file", str(body_file), "--template", "fancy"],
+    )
+    assert result.exit_code == 0
+    assert json.loads(api["calls"][-1].content)["template"] == "fancy"
+
+    api[("PATCH", "/v1/campaigns/cmp_1")] = {"id": "cmp_1"}
+    result = runner.invoke(cli_app, ["campaigns", "edit", "cmp_1", "--template", "none"])
+    assert result.exit_code == 0
+    assert json.loads(api["calls"][-1].content) == {"template": ""}
+
+
+def test_lists_edit_sets_template(api):
+    api[("PATCH", "/v1/lists/default")] = {
+        "id": "list_1",
+        "slug": "default",
+        "name": "Newsletter",
+        "template": "fancy",
+    }
+    result = runner.invoke(cli_app, ["lists", "edit", "default", "--template", "fancy"])
+    assert result.exit_code == 0
+    assert "template: fancy" in result.output
+    assert json.loads(api["calls"][-1].content) == {"template": "fancy"}

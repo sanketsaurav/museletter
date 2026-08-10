@@ -15,7 +15,12 @@ async def test_send_guardrails(app_client):
     assert resp.status_code == 412, "must require a test send first"
 
     resp = await client.post(f"/v1/campaigns/{cid}/send", json={"dry_run": True}, headers=AUTH)
-    assert resp.json() == {"dry_run": True, "recipient_count": 1, "sample": ["a@x.com"]}
+    assert resp.json() == {
+        "dry_run": True,
+        "recipient_count": 1,
+        "sample": ["a@x.com"],
+        "template": "default",
+    }
 
     resp = await client.post(f"/v1/campaigns/{cid}/test", json={"to": "me@x.com"}, headers=AUTH)
     assert resp.status_code == 200

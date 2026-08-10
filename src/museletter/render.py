@@ -38,6 +38,55 @@ _EMAIL_TEMPLATE = load_template("email.html")
 # Transactional emails (confirmation) use a sans-serif variant with a button.
 _SYSTEM_TEMPLATE = load_template("email-system.html")
 
+# The placeholders a campaign template may use, and the two it must use:
+# $content is the rendered issue body, $footer carries the unsubscribe link and
+# postal address the law (and SES's complaint rates) require in every send.
+TEMPLATE_VARS = ("subject", "header", "content", "footer")
+REQUIRED_TEMPLATE_VARS = ("content", "footer")
+MAX_TEMPLATE_BYTES = 102_400
+
+# One sample issue, used everywhere a template is rendered without a real
+# campaign (local preview, server-side template test sends).
+SAMPLE_ISSUE_SUBJECT = "A sample issue"
+SAMPLE_ISSUE_MARKDOWN = (
+    "## A sample issue\n\nHi {{first_name|there}}, this is what an issue looks like: a "
+    "[link](https://example.com), some *emphasis*, and a short list.\n\n"
+    "- the first point\n- the second point\n\n> A pull quote, to show the blockquote style.\n\n"
+    "Inline `code` renders like this. That is the whole system."
+)
+
+
+def validate_template(html: str) -> list[str]:
+    """Sanity-check a campaign template. Returns a list of problems, empty if
+    the template is safe to store and render."""
+    if not html.strip():
+        return ["template is empty"]
+    problems = []
+    size = len(html.encode("utf-8"))
+    if size > MAX_TEMPLATE_BYTES:
+        problems.append(
+            f"template is {size // 1024}KB; Gmail clips emails over 102KB, so the template "
+            "(plus the issue content) must stay well under that"
+        )
+    tpl = Template(html)
+    if not tpl.is_valid():
+        problems.append("invalid placeholder syntax: use $$ for a literal dollar sign")
+        return problems
+    placeholders = set(tpl.get_identifiers())
+    unknown = sorted(placeholders - set(TEMPLATE_VARS))
+    if unknown:
+        allowed = ", ".join(f"${v}" for v in TEMPLATE_VARS)
+        problems.append(
+            f"unknown placeholder(s): {', '.join(f'${u}' for u in unknown)} (available: {allowed})"
+        )
+    if "content" not in placeholders:
+        problems.append("missing the required $content placeholder (where the issue body renders)")
+    if "footer" not in placeholders:
+        problems.append(
+            "missing the required $footer placeholder (it carries the unsubscribe link and postal address)"
+        )
+    return problems
+
 
 def _footer_html(list_name: str, postal_address: str, unsubscribe_url: str = "") -> str:
     # Identity and the unsubscribe link share one line; the attribution sits on
@@ -112,13 +161,15 @@ def personalize_email(
     unsubscribe_url: str = "",
     list_name: str = "",
     postal_address: str = "",
+    template: Template | None = None,
 ) -> tuple[str, str, str]:
-    """Personalize a pre-rendered campaign for one recipient. Returns (subject, html, text)."""
+    """Personalize a pre-rendered campaign for one recipient. Returns (subject, html, text).
+    A custom template (validated with validate_template) replaces the built-in shell."""
     subject = personalize(body.subject, name, email)
     content_html = personalize(body.base_html, name, email, escape=True)
     content_text = personalize(body.base_text, name, email)
 
-    html = _EMAIL_TEMPLATE.substitute(
+    html = (template or _EMAIL_TEMPLATE).safe_substitute(
         subject=html_mod.escape(subject),
         header=html_mod.escape(list_name) if list_name else "Newsletter",
         content=content_html,
@@ -177,6 +228,7 @@ def build_email(
     unsubscribe_url: str = "",
     list_name: str = "",
     postal_address: str = "",
+    template: Template | None = None,
 ) -> tuple[str, str, str]:
     """Render and personalize a campaign for a single recipient. Convenience
     wrapper for one-off sends (confirmation, test, preview); the bulk send loop
@@ -188,4 +240,5 @@ def build_email(
         unsubscribe_url=unsubscribe_url,
         list_name=list_name,
         postal_address=postal_address,
+        template=template,
     )

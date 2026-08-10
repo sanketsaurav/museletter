@@ -51,7 +51,13 @@ running instance.
 
 - **Send guardrails**: sending requires `confirm=true`, a prior test send
   (unless `skip_test`), and supports `dry_run`; a campaign sends at most once.
-  Editing a draft clears `test_sent_at` on purpose.
+  Editing a draft clears `test_sent_at` on purpose, and so does changing the
+  HTML of a template (or a list's default template) a draft renders through.
+- **Templates**: custom campaign templates live in the DB (`templates` table),
+  validated on write and again as a send preflight (`$content` and `$footer`
+  required - `$footer` carries the unsubscribe link); the built-in `default`
+  is virtual (no row), never editable or deletable; deleting a referenced
+  template is refused.
 - **GET `/unsubscribe/...` must never mutate** - mail scanners prefetch links;
   only POST unsubscribes (RFC 8058 one-click).
 - **Suppressions** are checked both at audience materialization and again at

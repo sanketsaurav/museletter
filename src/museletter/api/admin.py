@@ -1,24 +1,29 @@
 import csv
 import io
+import re
+from string import Template
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from .. import doctor as doctor_mod
-from ..db import SUBSCRIBER_STATUSES, new_id, utcnow
-from ..render import build_email
+from ..db import BUILTIN_TEMPLATE_ID, SUBSCRIBER_STATUSES, new_id, utcnow
+from ..render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, validate_template
 from .common import (
+    builtin_template,
     campaign_json,
     campaign_stats,
     get_campaign,
     get_list,
     get_subscriber,
     get_tag,
+    get_template,
     normalize_email,
     require_api_key,
     slugify,
     subscriber_json,
     subscriber_tag_names,
+    template_name,
     valid_email,
 )
 
@@ -28,11 +33,13 @@ router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)])
 class ListIn(BaseModel):
     name: str
     slug: str | None = None
+    template: str | None = None
 
 
 class ListPatch(BaseModel):
     name: str | None = None
     slug: str | None = None
+    template: str | None = None
 
 
 class SubscriberIn(BaseModel):
@@ -55,12 +62,25 @@ class CampaignIn(BaseModel):
     subject: str
     body_markdown: str
     tag: str | None = None
+    template: str | None = None
 
 
 class CampaignPatch(BaseModel):
     subject: str | None = None
     body_markdown: str | None = None
     tag: str | None = None
+    template: str | None = None
+
+
+class TemplateIn(BaseModel):
+    name: str
+    html: str | None = None
+    copy_of: str | None = None
+
+
+class TemplatePatch(BaseModel):
+    name: str | None = None
+    html: str | None = None
 
 
 class TestSendIn(BaseModel):
@@ -85,6 +105,12 @@ class ImportIn(BaseModel):
 # ---------- lists ----------
 
 
+async def _list_template_name(db, row) -> str:
+    """What a list's campaigns render through when they don't pin their own
+    template: its stored default, or the built-in."""
+    return await template_name(db, row["template_id"]) or BUILTIN_TEMPLATE_ID
+
+
 @router.get("/lists")
 async def list_lists(request: Request):
     db = request.app.state.db
@@ -93,7 +119,7 @@ async def list_lists(request: Request):
         "FROM lists l ORDER BY l.created_at"
     ) as cur:
         rows = await cur.fetchall()
-    return {"lists": [dict(r) for r in rows]}
+    return {"lists": [{**dict(r), "template": await _list_template_name(db, r)} for r in rows]}
 
 
 @router.post("/lists", status_code=201)
@@ -103,13 +129,17 @@ async def create_list(request: Request, body: ListIn):
     async with db.execute("SELECT 1 FROM lists WHERE slug = ?", (slug,)) as cur:
         if await cur.fetchone():
             raise HTTPException(status_code=409, detail=f"list slug already exists: {slug}")
+    template_id = (
+        await _template_ref_to_id(db, body.template, for_list=True) if body.template is not None else None
+    )
     list_id = new_id("list")
     await db.execute(
-        "INSERT INTO lists (id, slug, name, created_at) VALUES (?, ?, ?, ?)",
-        (list_id, slug, body.name, utcnow()),
+        "INSERT INTO lists (id, slug, name, created_at, template_id) VALUES (?, ?, ?, ?, ?)",
+        (list_id, slug, body.name, utcnow(), template_id),
     )
     await db.commit()
-    return {"id": list_id, "slug": slug, "name": body.name}
+    lst = await get_list(db, list_id)
+    return {"id": list_id, "slug": slug, "name": body.name, "template": await _list_template_name(db, lst)}
 
 
 @router.get("/lists/{ref}")
@@ -122,6 +152,7 @@ async def get_list_detail(request: Request, ref: str):
         counts = {r["status"]: r["n"] for r in await cur.fetchall()}
     return {
         **dict(lst),
+        "template": await _list_template_name(db, lst),
         "subscribers": {status: counts.get(status, 0) for status in SUBSCRIBER_STATUSES},
         "subscribe_url": f"{request.app.state.settings.base_url}/subscribe/{lst['slug']}",
     }
@@ -137,9 +168,26 @@ async def update_list(request: Request, ref: str, body: ListPatch):
         async with db.execute("SELECT 1 FROM lists WHERE slug = ? AND id != ?", (slug, lst["id"])) as cur:
             if await cur.fetchone():
                 raise HTTPException(status_code=409, detail=f"list slug already exists: {slug}")
-    await db.execute("UPDATE lists SET name = ?, slug = ? WHERE id = ?", (name, slug, lst["id"]))
+    template_id = (
+        await _template_ref_to_id(db, body.template, for_list=True)
+        if body.template is not None
+        else lst["template_id"]
+    )
+    if template_id != lst["template_id"]:
+        # Drafts that inherit this list's template now render differently, so
+        # their prior test sends no longer show what would go out.
+        await db.execute(
+            "UPDATE campaigns SET test_sent_at = NULL "
+            "WHERE status = 'draft' AND list_id = ? AND template_id IS NULL",
+            (lst["id"],),
+        )
+    await db.execute(
+        "UPDATE lists SET name = ?, slug = ?, template_id = ? WHERE id = ?",
+        (name, slug, template_id, lst["id"]),
+    )
     await db.commit()
-    return {"id": lst["id"], "slug": slug, "name": name}
+    lst = await get_list(db, lst["id"])
+    return {"id": lst["id"], "slug": slug, "name": name, "template": await _list_template_name(db, lst)}
 
 
 @router.delete("/lists/{ref}", status_code=204)
@@ -437,6 +485,202 @@ async def delete_tag(request: Request, tag_id: str):
     return Response(status_code=204)
 
 
+# ---------- templates ----------
+
+RESERVED_TEMPLATE_NAMES = (BUILTIN_TEMPLATE_ID, "none")  # 'none' is the CLI's clear sentinel
+
+
+def _template_json(t: dict, include_html: bool = False) -> dict:
+    out = {
+        "id": t["id"],
+        "name": t["name"],
+        "builtin": t["builtin"],
+        "size": len(t["html"].encode("utf-8")),
+        "created_at": t["created_at"],
+        "updated_at": t["updated_at"],
+    }
+    if include_html:
+        out["html"] = t["html"]
+    return out
+
+
+def _normalize_template_name(raw: str) -> str:
+    name = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
+    if not name:
+        raise HTTPException(status_code=422, detail="template name must contain letters or numbers")
+    if name in RESERVED_TEMPLATE_NAMES:
+        raise HTTPException(status_code=422, detail=f"'{name}' is a reserved template name")
+    return name
+
+
+async def _template_ref_to_id(db, ref: str, *, for_list: bool) -> str | None:
+    """Resolve a user-supplied template reference to what a template_id column
+    stores. '' clears the field. The built-in maps to NULL on lists (there is
+    nothing above a list to inherit) but to the literal 'default' on campaigns,
+    which pins the built-in even when the list has a custom default."""
+    if ref == "":
+        return None
+    t = await get_template(db, ref)
+    if t["builtin"]:
+        return None if for_list else BUILTIN_TEMPLATE_ID
+    return t["id"]
+
+
+@router.get("/templates")
+async def list_templates(request: Request):
+    db = request.app.state.db
+    items = [_template_json(builtin_template())]
+    async with db.execute("SELECT * FROM templates ORDER BY name") as cur:
+        rows = await cur.fetchall()
+    items += [_template_json({**dict(r), "builtin": False}) for r in rows]
+    return {"templates": items}
+
+
+@router.post("/templates", status_code=201)
+async def create_template(request: Request, body: TemplateIn):
+    db = request.app.state.db
+    name = _normalize_template_name(body.name)
+    if body.html is not None and body.copy_of is None:
+        html = body.html
+    elif body.copy_of is not None and body.html is None:
+        html = (await get_template(db, body.copy_of))["html"]
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="provide either html or copy_of (an existing template to duplicate), not both",
+        )
+    problems = validate_template(html)
+    if problems:
+        raise HTTPException(status_code=422, detail="invalid template: " + "; ".join(problems))
+    async with db.execute("SELECT 1 FROM templates WHERE name = ?", (name,)) as cur:
+        if await cur.fetchone():
+            raise HTTPException(status_code=409, detail=f"template already exists: {name}")
+    template_id = new_id("tpl")
+    now = utcnow()
+    await db.execute(
+        "INSERT INTO templates (id, name, html, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (template_id, name, html, now, now),
+    )
+    await db.commit()
+    record = {"id": template_id, "name": name, "html": html, "builtin": False}
+    return _template_json({**record, "created_at": now, "updated_at": now})
+
+
+@router.get("/templates/{ref}")
+async def get_template_detail(request: Request, ref: str):
+    return _template_json(await get_template(request.app.state.db, ref), include_html=True)
+
+
+@router.patch("/templates/{ref}")
+async def update_template(request: Request, ref: str, body: TemplatePatch):
+    db = request.app.state.db
+    t = await get_template(db, ref)
+    if t["builtin"]:
+        raise HTTPException(
+            status_code=409,
+            detail="the built-in default template cannot be edited; "
+            "duplicate it (copy_of=default) and customize the copy",
+        )
+    name = _normalize_template_name(body.name) if body.name is not None else t["name"]
+    if name != t["name"]:
+        async with db.execute("SELECT 1 FROM templates WHERE name = ? AND id != ?", (name, t["id"])) as cur:
+            if await cur.fetchone():
+                raise HTTPException(status_code=409, detail=f"template already exists: {name}")
+    html = t["html"]
+    if body.html is not None and body.html != t["html"]:
+        problems = validate_template(body.html)
+        if problems:
+            raise HTTPException(status_code=422, detail="invalid template: " + "; ".join(problems))
+        # A mid-send design change would split one campaign across two looks.
+        async with db.execute(
+            "SELECT 1 FROM campaigns c JOIN lists l ON l.id = c.list_id WHERE c.status = 'sending' "
+            "AND (c.template_id = ? OR (c.template_id IS NULL AND l.template_id = ?)) LIMIT 1",
+            (t["id"], t["id"]),
+        ) as cur:
+            if await cur.fetchone():
+                raise HTTPException(
+                    status_code=409,
+                    detail="a campaign using this template is currently sending; try again when it finishes",
+                )
+        html = body.html
+        # What you tested is what you send: a design change invalidates prior
+        # test sends on every draft that would render through this template.
+        await db.execute(
+            "UPDATE campaigns SET test_sent_at = NULL WHERE status = 'draft' AND (template_id = ? "
+            "OR (template_id IS NULL AND list_id IN (SELECT id FROM lists WHERE template_id = ?)))",
+            (t["id"], t["id"]),
+        )
+    await db.execute(
+        "UPDATE templates SET name = ?, html = ?, updated_at = ? WHERE id = ?",
+        (name, html, utcnow(), t["id"]),
+    )
+    await db.commit()
+    return _template_json(await get_template(db, t["id"]))
+
+
+@router.delete("/templates/{ref}", status_code=204)
+async def delete_template(request: Request, ref: str):
+    db = request.app.state.db
+    t = await get_template(db, ref)
+    if t["builtin"]:
+        raise HTTPException(status_code=409, detail="the built-in default template cannot be deleted")
+    async with db.execute("SELECT slug FROM lists WHERE template_id = ? ORDER BY slug", (t["id"],)) as cur:
+        slugs = [r["slug"] for r in await cur.fetchall()]
+    if slugs:
+        raise HTTPException(
+            status_code=409,
+            detail=f"template is the default for list(s): {', '.join(slugs)}; change those first",
+        )
+    async with db.execute(
+        "SELECT COUNT(*) AS n FROM campaigns WHERE template_id = ? AND status IN ('draft', 'sending')",
+        (t["id"],),
+    ) as cur:
+        in_use = (await cur.fetchone())["n"]
+    if in_use:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{in_use} unsent campaign(s) use this template; edit or delete those first",
+        )
+    await db.execute("DELETE FROM templates WHERE id = ?", (t["id"],))
+    await db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/templates/{ref}/test")
+async def test_send_template(request: Request, ref: str, body: TestSendIn):
+    """Send a sample issue rendered through the template, to judge it in a real inbox."""
+    db = request.app.state.db
+    settings = request.app.state.settings
+    t = await get_template(db, ref)
+    to = normalize_email(body.to)
+    if not valid_email(to):
+        raise HTTPException(status_code=422, detail=f"invalid email: {body.to}")
+    async with db.execute("SELECT name FROM lists ORDER BY created_at LIMIT 1") as cur:
+        first_list = await cur.fetchone()
+    subject, html, text = build_email(
+        SAMPLE_ISSUE_SUBJECT,
+        SAMPLE_ISSUE_MARKDOWN,
+        name="Sam",
+        email=to,
+        unsubscribe_url=f"{settings.base_url}/unsubscribe/preview",
+        list_name=first_list["name"] if first_list else "Newsletter",
+        postal_address=settings.postal_address,
+        template=None if t["builtin"] else Template(t["html"]),
+    )
+    try:
+        message_id = await request.app.state.ses.send_email(
+            to,
+            f"[template {t['name']}] {subject}",
+            html,
+            text,
+            from_email=settings.from_email,
+            from_name=settings.from_name,
+        )
+    except Exception as exc:  # surface SES failures as a client-visible error
+        raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc
+    return {"sent_to": to, "template": t["name"], "ses_message_id": message_id}
+
+
 # ---------- campaigns ----------
 
 
@@ -457,6 +701,34 @@ async def _resolve_tag_id(db, list_id: str, tag_ref: str | None) -> str | None:
     return tag_row["id"]
 
 
+async def _campaign_json(db, row) -> dict:
+    return campaign_json(row, await _campaign_tag_name(db, row), await template_name(db, row["template_id"]))
+
+
+async def _effective_template(db, campaign, lst) -> tuple[str, Template | None]:
+    """The template a send of this campaign would render through: the campaign's
+    own, else the list default, else the built-in (returned as None). Raises 412
+    when the stored template is missing or no longer valid - the send-guardrail
+    preflight, shared by preview, test, and send so they can never disagree."""
+    template_id = campaign["template_id"] or lst["template_id"]
+    if not template_id or template_id == BUILTIN_TEMPLATE_ID:
+        return BUILTIN_TEMPLATE_ID, None
+    async with db.execute("SELECT name, html FROM templates WHERE id = ?", (template_id,)) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=412,
+            detail=f"campaign references a missing template ({template_id}); set another one",
+        )
+    problems = validate_template(row["html"])
+    if problems:
+        raise HTTPException(
+            status_code=412,
+            detail=f"template '{row['name']}' failed validation: " + "; ".join(problems),
+        )
+    return row["name"], Template(row["html"])
+
+
 @router.post("/lists/{ref}/campaigns", status_code=201)
 async def create_campaign(request: Request, ref: str, body: CampaignIn):
     db = request.app.state.db
@@ -466,15 +738,17 @@ async def create_campaign(request: Request, ref: str, body: CampaignIn):
     if not body.body_markdown.strip():
         raise HTTPException(status_code=422, detail="body_markdown is required")
     tag_id = await _resolve_tag_id(db, lst["id"], body.tag)
+    template_id = (
+        await _template_ref_to_id(db, body.template, for_list=False) if body.template is not None else None
+    )
     campaign_id = new_id("cmp")
     await db.execute(
-        "INSERT INTO campaigns (id, list_id, subject, body_markdown, tag_id, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (campaign_id, lst["id"], body.subject.strip(), body.body_markdown, tag_id, utcnow()),
+        "INSERT INTO campaigns (id, list_id, subject, body_markdown, tag_id, template_id, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (campaign_id, lst["id"], body.subject.strip(), body.body_markdown, tag_id, template_id, utcnow()),
     )
     await db.commit()
-    row = await get_campaign(db, campaign_id)
-    return campaign_json(row, await _campaign_tag_name(db, row))
+    return await _campaign_json(db, await get_campaign(db, campaign_id))
 
 
 @router.get("/campaigns")
@@ -492,14 +766,14 @@ async def list_campaigns(request: Request, list: str | None = None, status: str 
         f"SELECT c.* FROM campaigns c WHERE {' AND '.join(where)} ORDER BY c.created_at DESC", params
     ) as cur:
         rows = await cur.fetchall()
-    return {"campaigns": [campaign_json(r, await _campaign_tag_name(db, r)) for r in rows]}
+    return {"campaigns": [await _campaign_json(db, r) for r in rows]}
 
 
 @router.get("/campaigns/{campaign_id}")
 async def get_campaign_detail(request: Request, campaign_id: str):
     db = request.app.state.db
     row = await get_campaign(db, campaign_id)
-    result = campaign_json(row, await _campaign_tag_name(db, row))
+    result = await _campaign_json(db, row)
     if row["status"] != "draft":
         result["stats"] = await campaign_stats(db, campaign_id)
     return result
@@ -514,13 +788,18 @@ async def update_campaign(request: Request, campaign_id: str, body: CampaignPatc
     subject = body.subject.strip() if body.subject is not None else row["subject"]
     markdown = body.body_markdown if body.body_markdown is not None else row["body_markdown"]
     tag_id = await _resolve_tag_id(db, row["list_id"], body.tag) if body.tag is not None else row["tag_id"]
+    template_id = (
+        await _template_ref_to_id(db, body.template, for_list=False)
+        if body.template is not None
+        else row["template_id"]
+    )
     await db.execute(
-        "UPDATE campaigns SET subject = ?, body_markdown = ?, tag_id = ?, test_sent_at = NULL WHERE id = ?",
-        (subject, markdown, tag_id, campaign_id),
+        "UPDATE campaigns SET subject = ?, body_markdown = ?, tag_id = ?, template_id = ?, "
+        "test_sent_at = NULL WHERE id = ?",
+        (subject, markdown, tag_id, template_id, campaign_id),
     )
     await db.commit()
-    row = await get_campaign(db, campaign_id)
-    return campaign_json(row, await _campaign_tag_name(db, row))
+    return await _campaign_json(db, await get_campaign(db, campaign_id))
 
 
 @router.delete("/campaigns/{campaign_id}", status_code=204)
@@ -534,7 +813,7 @@ async def delete_campaign(request: Request, campaign_id: str):
     return Response(status_code=204)
 
 
-def _render_campaign_preview(request: Request, row, lst) -> tuple[str, str, str]:
+def _render_campaign_preview(request: Request, row, lst, template: Template | None) -> tuple[str, str, str]:
     settings = request.app.state.settings
     return build_email(
         row["subject"],
@@ -544,6 +823,7 @@ def _render_campaign_preview(request: Request, row, lst) -> tuple[str, str, str]
         unsubscribe_url=f"{settings.base_url}/unsubscribe/preview",
         list_name=lst["name"],
         postal_address=settings.postal_address,
+        template=template,
     )
 
 
@@ -552,8 +832,9 @@ async def preview_campaign(request: Request, campaign_id: str):
     db = request.app.state.db
     row = await get_campaign(db, campaign_id)
     lst = await get_list(db, row["list_id"])
-    subject, html, text = _render_campaign_preview(request, row, lst)
-    return {"subject": subject, "html": html, "text": text}
+    name, template = await _effective_template(db, row, lst)
+    subject, html, text = _render_campaign_preview(request, row, lst, template)
+    return {"subject": subject, "html": html, "text": text, "template": name}
 
 
 @router.post("/campaigns/{campaign_id}/test")
@@ -565,7 +846,8 @@ async def test_send_campaign(request: Request, campaign_id: str, body: TestSendI
     to = normalize_email(body.to)
     if not valid_email(to):
         raise HTTPException(status_code=422, detail=f"invalid email: {body.to}")
-    subject, html, text = _render_campaign_preview(request, row, lst)
+    _, template = await _effective_template(db, row, lst)
+    subject, html, text = _render_campaign_preview(request, row, lst, template)
     try:
         message_id = await request.app.state.ses.send_email(
             to,
@@ -603,6 +885,10 @@ async def send_campaign(request: Request, campaign_id: str, body: SendIn):
     if row["status"] != "draft":
         raise HTTPException(status_code=409, detail=f"campaign is already {row['status']}")
 
+    # Preflight the template on the dry run too, so a doomed send surfaces there.
+    lst = await get_list(db, row["list_id"])
+    effective_template, _ = await _effective_template(db, row, lst)
+
     audience_sql, params = _audience_query(row["list_id"], row["tag_id"])
     async with db.execute(f"SELECT COUNT(*) AS n {audience_sql}", params) as cur:
         recipient_count = (await cur.fetchone())["n"]
@@ -610,7 +896,12 @@ async def send_campaign(request: Request, campaign_id: str, body: SendIn):
     if body.dry_run:
         async with db.execute(f"SELECT s.email {audience_sql} LIMIT 10", params) as cur:
             sample = [r["email"] for r in await cur.fetchall()]
-        return {"dry_run": True, "recipient_count": recipient_count, "sample": sample}
+        return {
+            "dry_run": True,
+            "recipient_count": recipient_count,
+            "sample": sample,
+            "template": effective_template,
+        }
 
     if not body.confirm:
         raise HTTPException(
@@ -638,8 +929,7 @@ async def send_campaign(request: Request, campaign_id: str, body: SendIn):
     )
     await db.commit()
     request.app.state.sender.wake()
-    row = await get_campaign(db, campaign_id)
-    return campaign_json(row, await _campaign_tag_name(db, row))
+    return await _campaign_json(db, await get_campaign(db, campaign_id))
 
 
 @router.get("/campaigns/{campaign_id}/stats")
