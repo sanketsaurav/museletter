@@ -7,9 +7,16 @@ description: Cut a new Museletter release - bump versions, write the changelog, 
 
 Pushing a `v*` tag triggers two workflows: `.github/workflows/release.yml`
 (verifies tag = version, runs tests, builds sdist + wheel, publishes to PyPI
-via trusted publishing, creates a GitHub release with the artifacts) and
-`.github/workflows/docker.yml` (multi-arch image to
+via trusted publishing, creates a GitHub release whose notes are this tag's
+`CHANGELOG.md` section, then calls `homebrew.yml` to regenerate the tap
+formula) and `.github/workflows/docker.yml` (multi-arch image to
 `ghcr.io/sanketsaurav/museletter`, tagged `X.Y.Z`, `X.Y`, and `latest`).
+
+Everything after the push is automated, so the work here is the part that
+needs judgment: preflight, the version, and the changelog. The changelog
+section must be written **before** tagging - CI reads it to build the release
+notes, and falls back to a generated commit list if it can't find a section
+matching the tag.
 
 This repo uses **bump-then-tag**: version bumps and the changelog are committed
 to `master` first, then the tag points at that commit. The version lives in
@@ -99,15 +106,17 @@ git push origin master "vX.Y.Z"
 
 ```sh
 gh run list --limit 3                          # release.yml + docker.yml for the tag
-gh run watch <release-run-id> --exit-status
+gh run watch <release-run-id> --exit-status    # includes the nested homebrew job
 gh run watch <docker-run-id> --exit-status
-gh release view "vX.Y.Z"                       # assets: .tar.gz + .whl
+gh release view "vX.Y.Z"                       # assets: .tar.gz + .whl; notes = the changelog section
 ```
 
-Then sync the curated notes onto the release (CI used `--generate-notes`):
+If the release notes came out as a commit list, the changelog section header
+didn't match `## vX.Y.Z ` (look for a warning in the release run). Fix
+`CHANGELOG.md` on master and re-sync just the notes - don't re-tag:
 
 ```sh
-awk '/^## vX.Y.Z /{f=1;next} /^## v/{f=0} f' CHANGELOG.md > /tmp/notes.md
+awk -v v="## vX.Y.Z " 'index($0, v) == 1 {f=1; next} /^## v/ {f=0} f' CHANGELOG.md > /tmp/notes.md
 gh release edit "vX.Y.Z" --notes-file /tmp/notes.md
 ```
 
@@ -116,6 +125,8 @@ Verify the artifacts are actually consumable, then report the release URL:
 ```sh
 uvx --with "museletter==X.Y.Z" museletter --help   # PyPI propagated
 docker manifest inspect ghcr.io/sanketsaurav/museletter:X.Y.Z | grep -c architecture  # ≥ 2
+gh api repos/sanketsaurav/homebrew-tap/contents/Formula/museletter.rb --jq .content \
+  | base64 -d | grep -m1 'museletter-X'            # tap formula on the new version
 ```
 
 ## Failure modes
@@ -133,3 +144,8 @@ docker manifest inspect ghcr.io/sanketsaurav/museletter:X.Y.Z | grep -c architec
   patch release.
 - **Docker workflow failed but PyPI succeeded**: re-run just the docker
   workflow run; it's idempotent (retags the same commit).
+- **The homebrew job failed**: re-run that job from the release run, or
+  dispatch it on its own once PyPI has the version -
+  `gh workflow run homebrew.yml -f version=X.Y.Z`. It only rewrites the tap
+  formula, so it's safe to repeat. A missing `HOMEBREW_TAP_TOKEN` (fine-grained
+  PAT, contents:write on `sanketsaurav/homebrew-tap`) is the usual cause.

@@ -37,10 +37,20 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+      # Prefer the curated CHANGELOG.md section over a generated commit list.
+      # A tag with no matching section still releases, with generated notes.
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes dist/*
+          VERSION: ${{ steps.verify.outputs.version }}
+        run: |
+          awk -v v="## v$VERSION " 'index($0, v) == 1 {f=1; next} /^## v/ {f=0} f' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" --notes-file notes.md dist/*
+          else
+            echo "::warning::no CHANGELOG.md section for v$VERSION, using generated notes"
+            gh release create "$GITHUB_REF_NAME" --generate-notes dist/*
+          fi
 
   # Part of the release pipeline rather than a `release: published` listener:
   # GitHub does not fire workflow events for a release created with the default
