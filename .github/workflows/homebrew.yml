@@ -1,18 +1,28 @@
 name: Homebrew
 
-# Regenerates the tap formula after a release publishes to PyPI. Runs on the
-# `release: published` event so PyPI already has the version. Needs a repo
-# secret HOMEBREW_TAP_TOKEN: a fine-grained PAT with contents:write on the
-# sanketsaurav/homebrew-tap repo.
+# Regenerates the tap formula for a version that is already on PyPI. Driven by
+# release.yml once the publish succeeds, not by `release: published`: GitHub
+# suppresses workflow triggers for releases created with the default
+# GITHUB_TOKEN, so that event never fires. Also dispatchable by hand to redo a
+# formula without cutting a release. Needs a repo secret HOMEBREW_TAP_TOKEN: a
+# fine-grained PAT with contents:write on the sanketsaurav/homebrew-tap repo.
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.1.0)"
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 1.0.1)"
+        description: "Version to publish (e.g. 1.1.0)"
         required: true
+        type: string
 
 jobs:
   formula:
@@ -30,9 +40,9 @@ jobs:
 
       - name: Resolve the version
         id: v
-        run: |
-          raw="${{ github.event.inputs.version || github.event.release.tag_name }}"
-          echo "version=${raw#v}" >> "$GITHUB_OUTPUT"
+        env:
+          RAW: ${{ inputs.version }}
+        run: echo "version=${RAW#v}" >> "$GITHUB_OUTPUT"
 
       - name: Regenerate the formula
         run: python3 scripts/homebrew_formula.py "${{ steps.v.outputs.version }}" tap/Formula/museletter.rb

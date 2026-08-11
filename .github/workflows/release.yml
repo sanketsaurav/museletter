@@ -8,8 +8,10 @@ jobs:
   pypi:
     runs-on: ubuntu-latest
     environment: pypi
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
     permissions:
-      id-token: write # PyPI trusted publishing (OIDC) — no API token needed
+      id-token: write # PyPI trusted publishing (OIDC), no API token needed
       contents: write # create the GitHub release
     steps:
       - uses: actions/checkout@v4
@@ -18,11 +20,13 @@ jobs:
           python-version: "3.13"
 
       - name: Verify tag matches project version
+        id: verify
         run: |
           pyproject=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
           initpy=$(grep -m1 '__version__' src/museletter/__init__.py | cut -d'"' -f2)
           echo "tag=$GITHUB_REF_NAME pyproject=$pyproject __init__=$initpy"
           [ "v$pyproject" = "$GITHUB_REF_NAME" ] && [ "$initpy" = "$pyproject" ]
+          echo "version=$pyproject" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
         run: uv pip install -e ".[dev]" && .venv/bin/pytest -q
@@ -37,3 +41,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --generate-notes dist/*
+
+  # Part of the release pipeline rather than a `release: published` listener:
+  # GitHub does not fire workflow events for a release created with the default
+  # GITHUB_TOKEN. Separate job so a tap failure is re-runnable on its own and
+  # never touches the PyPI publish.
+  homebrew:
+    needs: pypi
+    permissions:
+      contents: read
+    uses: ./.github/workflows/homebrew.yml
+    with:
+      version: ${{ needs.pypi.outputs.version }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
