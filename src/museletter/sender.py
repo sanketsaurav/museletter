@@ -139,6 +139,7 @@ class SenderLoop:
                     text,
                     from_email=settings.from_email,
                     from_name=settings.from_name,
+                    reply_to=settings.reply_to,
                     headers=headers,
                 )
             except SendError as exc:

@@ -28,6 +28,7 @@ class FakeMailer:
                 "text": text,
                 "from_email": from_email,
                 "from_name": from_name,
+                "reply_to": reply_to,
                 "headers": headers or {},
             }
         )

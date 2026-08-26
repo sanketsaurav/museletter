@@ -105,7 +105,13 @@ async def _send_confirmation_email(request: Request, lst, subscriber_id: str, em
         list_name=lst["name"], confirm_url=confirm_url, postal_address=settings.postal_address
     )
     await request.app.state.mailer.send_email(
-        email, subject, html, text, from_email=settings.from_email, from_name=settings.from_name
+        email,
+        subject,
+        html,
+        text,
+        from_email=settings.from_email,
+        from_name=settings.from_name,
+        reply_to=settings.reply_to,
     )
 
 

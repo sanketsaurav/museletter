@@ -32,7 +32,9 @@ class FakeCloudflareMailer(FakeMailer):
     ):
         if self.fail_next:
             raise self.fail_next.pop(0)
-        self.sent.append({"to": to, "subject": subject, "html": html, "headers": headers or {}})
+        self.sent.append(
+            {"to": to, "subject": subject, "html": html, "headers": headers or {}, "reply_to": reply_to}
+        )
         return self.results_by_email.get(to, SendResult())
 
     async def pull_events(self, batch_size=50):
@@ -113,6 +115,7 @@ async def _suppressed_emails(db):
 
 async def test_send_verdicts_update_ledger(cf_app_client):
     app, client = cf_app_client
+    app.state.settings.reply_to = "replies@test.local"
     mailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "a@x.com")
     await add_subscriber(client, "b@x.com")
@@ -127,6 +130,7 @@ async def test_send_verdicts_update_ledger(cf_app_client):
     stats = await _stats(client, cid)
     assert stats["status"] == "sent"
     assert (stats["delivered"], stats["bounced"], stats["sent"]) == (1, 1, 1)
+    assert all(m["reply_to"] == "replies@test.local" for m in mailer.sent)
 
     db = app.state.db
     bounced = await _row(db, cid, "b@x.com")

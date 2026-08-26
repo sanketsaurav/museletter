@@ -345,6 +345,7 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_BASE_URL` | yes | public URL used in confirm/unsubscribe links |
 | `MUSELETTER_FROM_EMAIL` | yes | sender address (on a domain verified with your provider) |
 | `MUSELETTER_FROM_NAME` | no | sender display name |
+| `MUSELETTER_REPLY_TO` | no | Reply-To address on all outgoing email; when unset, replies go to the from address |
 | `MUSELETTER_POSTAL_ADDRESS` | no* | postal address in the footer (*required by CAN-SPAM) |
 | `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
 | `MUSELETTER_EMAIL_PROVIDER` | no | `ses` (default) or `cloudflare` |

@@ -675,6 +675,7 @@ async def test_send_template(request: Request, ref: str, body: TestSendIn):
             text,
             from_email=settings.from_email,
             from_name=settings.from_name,
+            reply_to=settings.reply_to,
         )
     except Exception as exc:  # surface provider failures as a client-visible error
         raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc
@@ -856,6 +857,7 @@ async def test_send_campaign(request: Request, campaign_id: str, body: TestSendI
             text,
             from_email=settings.from_email,
             from_name=settings.from_name,
+            reply_to=settings.reply_to,
         )
     except Exception as exc:  # surface provider failures as a client-visible error
         raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc

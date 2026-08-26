@@ -9,6 +9,7 @@ class Settings:
     base_url: str = ""
     from_email: str = ""
     from_name: str = ""
+    reply_to: str = ""  # optional Reply-To on all outgoing email; replies go to from_email when empty
     postal_address: str = ""
     opt_in: str = "double"  # "double" or "single"
     send_rate: float = 10.0  # emails per second, must stay under the provider's account rate
@@ -35,6 +36,7 @@ class Settings:
             base_url=env.get("MUSELETTER_BASE_URL", "").rstrip("/"),
             from_email=env.get("MUSELETTER_FROM_EMAIL", ""),
             from_name=env.get("MUSELETTER_FROM_NAME", ""),
+            reply_to=env.get("MUSELETTER_REPLY_TO", ""),
             postal_address=env.get("MUSELETTER_POSTAL_ADDRESS", ""),
             opt_in=env.get("MUSELETTER_OPT_IN", "double"),
             send_rate=float(env.get("MUSELETTER_SEND_RATE", "10")),
