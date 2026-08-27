@@ -25,6 +25,7 @@ class FakeCloudflareMailer(FakeMailer):
         self.results_by_email: dict[str, SendResult] = {}
         self.queue: list[dict] = []
         self.acked: list[str] = []
+        self.queue_consumers: list[dict] = [{"type": "http_pull"}]
 
     async def send_email(
         self, to, subject, html, text, *, from_email, from_name="", headers=None, reply_to=""
@@ -45,7 +46,7 @@ class FakeCloudflareMailer(FakeMailer):
         return {"success": True, "result": []}
 
     async def get_queue(self):
-        return {"queue_name": "museletter-events"}
+        return {"queue_name": "museletter-events", "consumers": self.queue_consumers}
 
 
 def make_cf_settings(tmp_path):
@@ -258,6 +259,17 @@ async def test_doctor_cloudflare_missing_token(cf_app_client, monkeypatch):
     check = next(c for c in data["checks"] if c["name"] == "cloudflare-credentials")
     assert check["status"] == "fail"
     assert data["status"] == "fail"
+
+
+async def test_doctor_fails_without_http_pull_consumer(cf_app_client, monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-token")
+    monkeypatch.setattr(doctor_mod, "_resolve_txt", _no_txt)
+    app, client = cf_app_client
+    app.state.settings.extra["mailer"].queue_consumers = [{"type": "worker"}]
+    data = (await client.get("/v1/doctor", headers=AUTH)).json()
+    check = next(c for c in data["checks"] if c["name"] == "cloudflare-events")
+    assert check["status"] == "fail"
+    assert "HTTP pull consumer" in check["detail"]
 
 
 async def test_doctor_warns_without_events_queue(tmp_path, monkeypatch):

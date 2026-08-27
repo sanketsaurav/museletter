@@ -22,12 +22,15 @@ dashboard-side; substitute the user's domain and server URL throughout.
    Queue that Museletter polls; nothing else to host:
    ```bash
    npx wrangler queues create museletter-email-events
+   npx wrangler queues consumer http add museletter-email-events
    ```
-   Then in the dashboard, open the queue (Storage & Databases > Queues) and
-   add an **event subscription** with source **Email Sending**, scoped to the
-   sending domain, for the events `message.delivered`, `message.bounced`,
-   `message.complained`, `message.failed`, `message.rejected`. Note the queue
-   id shown on the queue's page.
+   The second command registers an HTTP pull consumer; the pull API returns
+   405 for queues without one. Then in the dashboard, open the queue
+   (Storage & Databases > Queues) and add an **event subscription** with
+   source **Email Sending**, scoped to the sending domain, for the events
+   `message.delivered`, `message.bounced`, `message.complained`,
+   `message.failed`, `message.rejected`. Note the queue id shown on the
+   queue's page.
 
 5. **Set the environment** on the server and restart it:
    ```bash

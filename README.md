@@ -198,13 +198,16 @@ Set `MUSELETTER_EMAIL_PROVIDER=cloudflare` and configure once:
 
 3. **Route delivery events to a queue.** Bounces and complaints arrive as
    queue messages and Museletter polls the queue over HTTPS: no Worker and no
-   inbound webhook to host. Create a queue, then subscribe it to Email Sending
-   events for your sending domain (`message.delivered`, `message.bounced`,
-   `message.complained`, `message.failed`, `message.rejected`) from the
-   queue's Event Subscriptions settings in the dashboard:
+   inbound webhook to host. Create a queue and register an HTTP pull consumer
+   on it (the pull API rejects queues without one), then subscribe the queue
+   to Email Sending events for your sending domain (`message.delivered`,
+   `message.bounced`, `message.complained`, `message.failed`,
+   `message.rejected`) from the queue's Event Subscriptions settings in the
+   dashboard:
 
    ```bash
    npx wrangler queues create museletter-email-events
+   npx wrangler queues consumer http add museletter-email-events
    ```
 
    Set `MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID` to the queue id shown on the

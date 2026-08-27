@@ -138,7 +138,20 @@ async def _cloudflare_checks(settings: Settings, mailer) -> list[dict]:
                 )
             else:
                 name = queue.get("queue_name") or settings.cloudflare_events_queue_id
-                checks.append(_check("cloudflare-events", "ok", f"events queue reachable ({name})"))
+                consumers = queue.get("consumers") or []
+                if any(c.get("type") == "http_pull" for c in consumers):
+                    checks.append(_check("cloudflare-events", "ok", f"events queue reachable ({name})"))
+                else:
+                    # The pull API returns 405 on queues without one; a worker
+                    # consumer does not count.
+                    checks.append(
+                        _check(
+                            "cloudflare-events",
+                            "fail",
+                            f"events queue {name} has no HTTP pull consumer, so pulls are rejected; "
+                            f"register one: npx wrangler queues consumer http add {name}",
+                        )
+                    )
         except (SendError, OSError) as exc:
             checks.append(
                 _check(
