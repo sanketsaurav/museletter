@@ -668,7 +668,7 @@ async def test_send_template(request: Request, ref: str, body: TestSendIn):
         template=None if t["builtin"] else Template(t["html"]),
     )
     try:
-        message_id = await request.app.state.ses.send_email(
+        result = await request.app.state.mailer.send_email(
             to,
             f"[template {t['name']}] {subject}",
             html,
@@ -676,9 +676,9 @@ async def test_send_template(request: Request, ref: str, body: TestSendIn):
             from_email=settings.from_email,
             from_name=settings.from_name,
         )
-    except Exception as exc:  # surface SES failures as a client-visible error
+    except Exception as exc:  # surface provider failures as a client-visible error
         raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc
-    return {"sent_to": to, "template": t["name"], "ses_message_id": message_id}
+    return {"sent_to": to, "template": t["name"], "ses_message_id": result.message_id}
 
 
 # ---------- campaigns ----------
@@ -849,7 +849,7 @@ async def test_send_campaign(request: Request, campaign_id: str, body: TestSendI
     _, template = await _effective_template(db, row, lst)
     subject, html, text = _render_campaign_preview(request, row, lst, template)
     try:
-        message_id = await request.app.state.ses.send_email(
+        result = await request.app.state.mailer.send_email(
             to,
             f"[test] {subject}",
             html,
@@ -857,11 +857,11 @@ async def test_send_campaign(request: Request, campaign_id: str, body: TestSendI
             from_email=settings.from_email,
             from_name=settings.from_name,
         )
-    except Exception as exc:  # surface SES failures as a client-visible error
+    except Exception as exc:  # surface provider failures as a client-visible error
         raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc
     await db.execute("UPDATE campaigns SET test_sent_at = ? WHERE id = ?", (utcnow(), campaign_id))
     await db.commit()
-    return {"sent_to": to, "ses_message_id": message_id}
+    return {"sent_to": to, "ses_message_id": result.message_id}
 
 
 def _audience_query(list_id: str, tag_id: str | None) -> tuple[str, list]:
@@ -991,5 +991,5 @@ async def remove_suppression(request: Request, email: str):
 @router.get("/doctor")
 async def run_doctor(request: Request):
     return await doctor_mod.run_checks(
-        request.app.state.settings, request.app.state.ses, request.app.state.db
+        request.app.state.settings, request.app.state.mailer, request.app.state.db
     )

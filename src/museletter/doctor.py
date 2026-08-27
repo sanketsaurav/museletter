@@ -3,7 +3,9 @@
 import dns.asyncresolver
 import dns.exception
 
+from .cloudflare import CloudflareEmail
 from .config import Settings
+from .mailer import SendError
 from .ses import SESClient, SESError
 
 
@@ -21,7 +23,134 @@ async def _resolve_txt(name: str) -> list[str]:
         return []
 
 
-async def run_checks(settings: Settings, ses: SESClient, db) -> dict:
+async def _ses_checks(settings: Settings, ses) -> list[dict]:
+    checks: list[dict] = []
+    if not SESClient.has_credentials():
+        checks.append(
+            _check("aws-credentials", "fail", "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are not set")
+        )
+        return checks
+    checks.append(_check("aws-credentials", "ok", "AWS credentials present"))
+    try:
+        account = await ses.get_account()
+        if not account.get("SendingEnabled", False):
+            checks.append(_check("ses-sending", "fail", "sending is disabled on this SES account"))
+        elif not account.get("ProductionAccessEnabled", False):
+            checks.append(
+                _check(
+                    "ses-sandbox",
+                    "fail",
+                    "SES account is in the sandbox: you can only email verified addresses. "
+                    "Request production access in the SES console.",
+                )
+            )
+        else:
+            checks.append(_check("ses-sending", "ok", "SES production access enabled"))
+        quota = account.get("SendQuota", {})
+        max_rate = quota.get("MaxSendRate", 0)
+        checks.append(
+            _check(
+                "ses-quota",
+                "ok",
+                f"quota: {quota.get('SentLast24Hours', 0):.0f}/{quota.get('Max24HourSend', 0):.0f} "
+                f"in last 24h, max rate {max_rate:.0f}/sec",
+            )
+        )
+        if max_rate and settings.send_rate > max_rate:
+            checks.append(
+                _check(
+                    "send-rate",
+                    "warn",
+                    f"MUSELETTER_SEND_RATE ({settings.send_rate}/sec) exceeds the SES account rate "
+                    f"({max_rate:.0f}/sec); sends will be throttled",
+                )
+            )
+    except (SESError, OSError) as exc:
+        checks.append(_check("ses-account", "fail", f"could not query SES: {exc}"))
+
+    domain = settings.from_email.split("@")[-1] if "@" in settings.from_email else ""
+    if domain:
+        try:
+            identity = await ses.get_identity(domain) or await ses.get_identity(settings.from_email)
+            if identity is None:
+                checks.append(
+                    _check(
+                        "ses-identity",
+                        "fail",
+                        f"neither {domain} nor {settings.from_email} is a verified SES identity",
+                    )
+                )
+            else:
+                if identity.get("VerifiedForSendingStatus"):
+                    checks.append(_check("ses-identity", "ok", "sender identity is verified"))
+                else:
+                    checks.append(
+                        _check("ses-identity", "fail", "sender identity exists but is not verified")
+                    )
+                dkim = (identity.get("DkimAttributes") or {}).get("Status", "")
+                if dkim == "SUCCESS":
+                    checks.append(_check("dkim", "ok", "DKIM is passing"))
+                else:
+                    checks.append(_check("dkim", "warn", f"DKIM status is {dkim or 'unknown'}"))
+        except (SESError, OSError) as exc:
+            checks.append(_check("ses-identity", "warn", f"could not query identity: {exc}"))
+    return checks
+
+
+async def _cloudflare_checks(settings: Settings, mailer) -> list[dict]:
+    checks: list[dict] = []
+    if not CloudflareEmail.has_credentials():
+        checks.append(_check("cloudflare-credentials", "fail", "CLOUDFLARE_API_TOKEN is not set"))
+        return checks
+    checks.append(_check("cloudflare-credentials", "ok", "Cloudflare API token present"))
+    try:
+        await mailer.get_suppressions()
+        checks.append(
+            _check(
+                "cloudflare-api",
+                "ok",
+                "Email Sending API reachable and authorized (domain verification is "
+                "managed in the Cloudflare dashboard)",
+            )
+        )
+    except (SendError, OSError) as exc:
+        checks.append(_check("cloudflare-api", "fail", f"could not query the Email Sending API: {exc}"))
+    if not settings.cloudflare_events_queue_id:
+        checks.append(
+            _check(
+                "cloudflare-events",
+                "warn",
+                "MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID is empty; delivery, bounce, and complaint "
+                "events are not ingested, so hard bounces and complaints will not auto-suppress. "
+                "Create a queue with an Email Sending event subscription and set the queue id.",
+            )
+        )
+    else:
+        try:
+            queue = await mailer.get_queue()
+            if queue is None:
+                checks.append(
+                    _check(
+                        "cloudflare-events",
+                        "fail",
+                        f"events queue {settings.cloudflare_events_queue_id} not found",
+                    )
+                )
+            else:
+                name = queue.get("queue_name") or settings.cloudflare_events_queue_id
+                checks.append(_check("cloudflare-events", "ok", f"events queue reachable ({name})"))
+        except (SendError, OSError) as exc:
+            checks.append(
+                _check(
+                    "cloudflare-events",
+                    "fail",
+                    f"could not query the events queue (the token needs Queues read + write): {exc}",
+                )
+            )
+    return checks
+
+
+async def run_checks(settings: Settings, mailer, db) -> dict:
     checks: list[dict] = []
 
     problems = settings.missing_required()
@@ -39,7 +168,7 @@ async def run_checks(settings: Settings, ses: SESClient, db) -> dict:
         )
     if settings.base_url.startswith("http://"):
         checks.append(_check("base-url", "warn", "MUSELETTER_BASE_URL is not https"))
-    if not settings.sns_topic_arn:
+    if settings.email_provider == "ses" and not settings.sns_topic_arn:
         checks.append(
             _check(
                 "sns-topic",
@@ -49,88 +178,26 @@ async def run_checks(settings: Settings, ses: SESClient, db) -> dict:
             )
         )
 
-    if not SESClient.has_credentials():
-        checks.append(
-            _check("aws-credentials", "fail", "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are not set")
-        )
+    if settings.email_provider == "cloudflare":
+        checks += await _cloudflare_checks(settings, mailer)
     else:
-        checks.append(_check("aws-credentials", "ok", "AWS credentials present"))
-        try:
-            account = await ses.get_account()
-            if not account.get("SendingEnabled", False):
-                checks.append(_check("ses-sending", "fail", "sending is disabled on this SES account"))
-            elif not account.get("ProductionAccessEnabled", False):
-                checks.append(
-                    _check(
-                        "ses-sandbox",
-                        "fail",
-                        "SES account is in the sandbox: you can only email verified addresses. "
-                        "Request production access in the SES console.",
-                    )
-                )
-            else:
-                checks.append(_check("ses-sending", "ok", "SES production access enabled"))
-            quota = account.get("SendQuota", {})
-            max_rate = quota.get("MaxSendRate", 0)
+        checks += await _ses_checks(settings, mailer)
+
+    # Plain DNS, so it applies to every provider: Gmail/Yahoo require DMARC.
+    domain = settings.from_email.split("@")[-1] if "@" in settings.from_email else ""
+    if domain:
+        dmarc = await _resolve_txt(f"_dmarc.{domain}")
+        if any(r.lower().startswith("v=dmarc1") for r in dmarc):
+            checks.append(_check("dmarc", "ok", f"DMARC record found on {domain}"))
+        else:
             checks.append(
                 _check(
-                    "ses-quota",
-                    "ok",
-                    f"quota: {quota.get('SentLast24Hours', 0):.0f}/{quota.get('Max24HourSend', 0):.0f} "
-                    f"in last 24h, max rate {max_rate:.0f}/sec",
+                    "dmarc",
+                    "warn",
+                    f"no DMARC record on _dmarc.{domain}; Gmail/Yahoo require one for bulk senders "
+                    '(minimal: "v=DMARC1; p=none")',
                 )
             )
-            if max_rate and settings.send_rate > max_rate:
-                checks.append(
-                    _check(
-                        "send-rate",
-                        "warn",
-                        f"MUSELETTER_SEND_RATE ({settings.send_rate}/sec) exceeds the SES account rate "
-                        f"({max_rate:.0f}/sec); sends will be throttled",
-                    )
-                )
-        except (SESError, OSError) as exc:
-            checks.append(_check("ses-account", "fail", f"could not query SES: {exc}"))
-
-        domain = settings.from_email.split("@")[-1] if "@" in settings.from_email else ""
-        if domain:
-            try:
-                identity = await ses.get_identity(domain) or await ses.get_identity(settings.from_email)
-                if identity is None:
-                    checks.append(
-                        _check(
-                            "ses-identity",
-                            "fail",
-                            f"neither {domain} nor {settings.from_email} is a verified SES identity",
-                        )
-                    )
-                else:
-                    if identity.get("VerifiedForSendingStatus"):
-                        checks.append(_check("ses-identity", "ok", "sender identity is verified"))
-                    else:
-                        checks.append(
-                            _check("ses-identity", "fail", "sender identity exists but is not verified")
-                        )
-                    dkim = (identity.get("DkimAttributes") or {}).get("Status", "")
-                    if dkim == "SUCCESS":
-                        checks.append(_check("dkim", "ok", "DKIM is passing"))
-                    else:
-                        checks.append(_check("dkim", "warn", f"DKIM status is {dkim or 'unknown'}"))
-            except (SESError, OSError) as exc:
-                checks.append(_check("ses-identity", "warn", f"could not query identity: {exc}"))
-
-            dmarc = await _resolve_txt(f"_dmarc.{domain}")
-            if any(r.lower().startswith("v=dmarc1") for r in dmarc):
-                checks.append(_check("dmarc", "ok", f"DMARC record found on {domain}"))
-            else:
-                checks.append(
-                    _check(
-                        "dmarc",
-                        "warn",
-                        f"no DMARC record on _dmarc.{domain}; Gmail/Yahoo require one for bulk senders "
-                        '(minimal: "v=DMARC1; p=none")',
-                    )
-                )
 
     async with db.execute("SELECT COUNT(*) AS n FROM subscribers WHERE status = 'active'") as cur:
         active = (await cur.fetchone())["n"]

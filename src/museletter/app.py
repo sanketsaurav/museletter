@@ -8,10 +8,11 @@ from fastapi.responses import JSONResponse
 
 from . import __version__, turnstile
 from .api.public import RateLimiter
+from .cloudflare import EventPoller
 from .config import Settings
 from .db import ensure_default_list, ensure_secret, open_db, utcnow
+from .mailer import create_mailer
 from .sender import SenderLoop
-from .ses import SESClient
 from .sns import SNSVerifier
 
 
@@ -22,23 +23,26 @@ async def lifespan(app: FastAPI):
     app.state.db = db
     app.state.secret = await ensure_secret(db, settings.secret)
     await ensure_default_list(db)
-    app.state.ses = settings.extra.get("ses") or SESClient(
-        settings.aws_region, settings.ses_configuration_set
-    )
+    app.state.mailer = settings.extra.get("mailer") or create_mailer(settings)
     app.state.sns_verifier = settings.extra.get("sns_verifier") or SNSVerifier()
     app.state.turnstile_verify = settings.extra.get("turnstile_verify") or turnstile.verify
     app.state.rate_limiter = RateLimiter()
     app.state.sender = SenderLoop(app)
-    sender_task = None
+    app.state.event_poller = None
+    tasks: list[tuple] = []
+    # disable_sender turns off both background loops; tests drive them by hand.
     if not settings.extra.get("disable_sender"):
-        sender_task = asyncio.create_task(app.state.sender.run())
+        tasks.append((app.state.sender, asyncio.create_task(app.state.sender.run())))
+        if settings.email_provider == "cloudflare" and settings.cloudflare_events_queue_id:
+            app.state.event_poller = EventPoller(app)
+            tasks.append((app.state.event_poller, asyncio.create_task(app.state.event_poller.run())))
     yield
-    if sender_task is not None:
-        app.state.sender.stop()
+    for loop, task in tasks:
+        loop.stop()
         try:
-            await asyncio.wait_for(sender_task, timeout=5)
+            await asyncio.wait_for(task, timeout=5)
         except (TimeoutError, asyncio.CancelledError):
-            sender_task.cancel()
+            task.cancel()
     await db.close()
 
 

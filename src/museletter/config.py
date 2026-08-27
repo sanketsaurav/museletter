@@ -11,10 +11,14 @@ class Settings:
     from_name: str = ""
     postal_address: str = ""
     opt_in: str = "double"  # "double" or "single"
-    send_rate: float = 10.0  # emails per second, must stay under the SES account rate
+    send_rate: float = 10.0  # emails per second, must stay under the provider's account rate
+    email_provider: str = "ses"  # "ses" or "cloudflare"
     aws_region: str = "us-east-1"
     ses_configuration_set: str = ""
     sns_topic_arn: str = ""  # if set, only SNS events from this topic are accepted
+    cloudflare_account_id: str = ""
+    cloudflare_events_queue_id: str = ""  # queue holding cf.email.sending.* event subscriptions
+    cloudflare_poll_seconds: float = 30.0  # how often the event poller drains the queue
     trust_proxy: bool = False  # read X-Forwarded-For for the client IP (set behind a proxy)
     public_subscribe: bool = True  # expose POST /subscribe/{slug}; disable if adding via the admin API
     turnstile_secret: str = ""  # if set, /subscribe requires a valid Cloudflare Turnstile token
@@ -34,9 +38,13 @@ class Settings:
             postal_address=env.get("MUSELETTER_POSTAL_ADDRESS", ""),
             opt_in=env.get("MUSELETTER_OPT_IN", "double"),
             send_rate=float(env.get("MUSELETTER_SEND_RATE", "10")),
+            email_provider=env.get("MUSELETTER_EMAIL_PROVIDER", "ses").strip().lower(),
             aws_region=env.get("AWS_REGION", env.get("AWS_DEFAULT_REGION", "us-east-1")),
             ses_configuration_set=env.get("MUSELETTER_SES_CONFIGURATION_SET", ""),
             sns_topic_arn=env.get("MUSELETTER_SNS_TOPIC_ARN", ""),
+            cloudflare_account_id=env.get("CLOUDFLARE_ACCOUNT_ID", ""),
+            cloudflare_events_queue_id=env.get("MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID", ""),
+            cloudflare_poll_seconds=float(env.get("MUSELETTER_CLOUDFLARE_POLL_SECONDS", "30")),
             trust_proxy=env.get("MUSELETTER_TRUST_PROXY", "").lower() in ("1", "true", "yes"),
             public_subscribe=env.get("MUSELETTER_PUBLIC_SUBSCRIBE", "true").lower()
             not in ("0", "false", "no"),
@@ -59,4 +67,12 @@ class Settings:
             problems.append("MUSELETTER_FROM_EMAIL is not set (the address newsletters are sent from)")
         if self.opt_in not in ("double", "single"):
             problems.append(f"MUSELETTER_OPT_IN must be 'double' or 'single', got '{self.opt_in}'")
+        if self.email_provider not in ("ses", "cloudflare"):
+            problems.append(
+                f"MUSELETTER_EMAIL_PROVIDER must be 'ses' or 'cloudflare', got '{self.email_provider}'"
+            )
+        elif self.email_provider == "cloudflare" and not self.cloudflare_account_id:
+            problems.append(
+                "CLOUDFLARE_ACCOUNT_ID is not set (the Cloudflare account that owns the sending domain)"
+            )
         return problems

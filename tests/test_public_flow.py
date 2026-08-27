@@ -12,7 +12,7 @@ async def _find_subscriber(client, email):
 
 async def test_subscribe_confirm_unsubscribe_flow(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
 
     resp = await client.post("/subscribe/default", json={"email": "reader@example.com", "name": "R"})
     assert resp.status_code == 200
@@ -21,8 +21,8 @@ async def test_subscribe_confirm_unsubscribe_flow(app_client):
     sub = await _find_subscriber(client, "reader@example.com")
     assert sub["status"] == "unconfirmed"
 
-    assert len(fake_ses.sent) == 1
-    confirm_email = fake_ses.sent[0]
+    assert len(fake_mailer.sent) == 1
+    confirm_email = fake_mailer.sent[0]
     assert confirm_email["to"] == "reader@example.com"
     match = re.search(r"http://test\.local/confirm/([^\s)]+)", confirm_email["text"])
     assert match, confirm_email["text"]
@@ -47,20 +47,20 @@ async def test_subscribe_confirm_unsubscribe_flow(app_client):
 
 async def test_subscribe_honeypot_and_suppressed(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
 
     resp = await client.post(
         "/subscribe/default", json={"email": "bot@example.com", "website": "http://spam"}
     )
     assert resp.json()["status"] == "pending_confirmation"
     assert await _find_subscriber(client, "bot@example.com") is None
-    assert fake_ses.sent == []
+    assert fake_mailer.sent == []
 
     await client.post("/v1/suppressions", json={"email": "burned@example.com"}, headers=AUTH)
     resp = await client.post("/subscribe/default", json={"email": "burned@example.com"})
     assert resp.json()["status"] == "pending_confirmation"
     assert await _find_subscriber(client, "burned@example.com") is None
-    assert fake_ses.sent == []
+    assert fake_mailer.sent == []
 
 
 async def test_subscribe_invalid_inputs(app_client):

@@ -7,8 +7,9 @@
 <p></p>
 
 Museletter is a **headless**, **agent-first** newsletter engine. One container, one SQLite
-database, Amazon SES. There is no web UI. You (or your AI agent) operate it
-through a CLI and an HTTP API.
+database, and your email provider: Amazon SES or Cloudflare Email Service.
+There is no web UI. You (or your AI agent) operate it through a CLI and an
+HTTP API.
 
 I'm building Museletter to use it on my website [sanketsaurav.com](https://sanketsaurav.com?ref=gh_museletter). It has all essential primitives for running a professional newsletter:
 
@@ -16,10 +17,11 @@ I'm building Museletter to use it on my website [sanketsaurav.com](https://sanke
 - a public subscribe endpoint with double opt-in
 - Markdown campaigns rendered into a clean email template
 - RFC 8058 one-click unsubscribe, injected automatically on every send
-- automatic bounce/complaint suppression via SES to SNS webhooks
-- a crash-safe send ledger that respects SES rate limits and resumes mid-blast
+- automatic bounce/complaint suppression, fed by SES+SNS webhooks or
+  Cloudflare queue events
+- a crash-safe send ledger that respects provider rate limits and resumes mid-blast
 - per-campaign delivery stats
-- `museletter doctor`, which checks DNS, DKIM, DMARC, SES sandbox/quota, config
+- `museletter doctor`, which checks DNS, DKIM, DMARC, provider account/quota, config
 
 ## How it works
 
@@ -29,8 +31,10 @@ Three layers:
    Its HTTP surface has two audiences. The **public endpoints**
    (`/subscribe`, `/confirm`, `/unsubscribe`, `/webhooks/sns`) must be
    reachable from the internet, because readers click links in their inbox and
-   Amazon SNS posts delivery events to the webhook. The **admin API**
-   (`/v1/*`, bearer-authenticated) only needs to be reachable by you.
+   Amazon SNS posts delivery events to the webhook (on Cloudflare, delivery
+   events arrive by polling a queue instead: no inbound webhook). The
+   **admin API** (`/v1/*`, bearer-authenticated) only needs to be reachable
+   by you.
 2. **The CLI** (`museletter`): the same binary runs the server *and* is the
    admin client for a running server, local or remote.
 3. **The skill**: a bundled set of recipes so an agent can drive the CLI. See
@@ -69,8 +73,10 @@ token):
 museletter init --base-url https://news.example.com --from-email you@example.com
 ```
 
-Add your AWS credentials to the `.env` (see [AWS SES setup](#aws-ses-setup-once)),
-then start the server with that environment. Any container host works; the
+Add your AWS credentials to the `.env` (see [AWS SES setup](#aws-ses-setup-once);
+to send through Cloudflare instead, pass `--provider cloudflare` and see
+[Cloudflare Email Service setup](#cloudflare-email-service-setup-once)), then
+start the server with that environment. Any container host works; the
 simplest is Docker:
 
 ```bash
@@ -96,7 +102,7 @@ On your laptop:
 pip install museletter
 museletter connect ml_...        # paste the token; verifies reachability + auth
 museletter skill install         # drop the agent skill into ~/.claude/skills
-museletter doctor                # confirm SES, DNS, and config are healthy
+museletter doctor                # confirm provider, DNS, and config are healthy
 museletter status                # server, reachability, subscriber counts
 ```
 
@@ -120,8 +126,10 @@ authenticates with `Authorization: Bearer <api key>`.
 
 ## AWS SES setup (once)
 
-Museletter sends through Amazon SES, so SES has to be set up once. All of this
-is scriptable, and the bundled skill has a copy-paste recipe
+SES is the default provider (`MUSELETTER_EMAIL_PROVIDER=ses`) and has to be
+set up once; prefer Cloudflare? See
+[Cloudflare Email Service setup](#cloudflare-email-service-setup-once). All of
+this is scriptable, and the bundled skill has a copy-paste recipe
 (`museletter skill install`, then see `recipes/aws-ses-setup.md`).
 
 1. **Verify your sending domain** (creates DKIM keys):
@@ -165,6 +173,52 @@ is scriptable, and the bundled skill has a copy-paste recipe
 
 Run `museletter doctor` at any point; it reports exactly which of these is
 missing.
+
+## Cloudflare Email Service setup (once)
+
+Museletter can send through
+[Cloudflare Email Service](https://developers.cloudflare.com/email-service/)
+instead of SES. Email Sending is in public beta and requires a Workers Paid
+plan; treat the provider as experimental until Cloudflare declares it GA.
+Set `MUSELETTER_EMAIL_PROVIDER=cloudflare` and configure once:
+
+1. **Verify your sending domain.** In the Cloudflare dashboard, open your zone
+   and enable Email Sending (Email > Email Sending) on the domain or a
+   subdomain such as `news.example.com`, then add the DNS records it shows
+   (SPF + DKIM). `MUSELETTER_FROM_EMAIL` must be on that domain. Add the same
+   DMARC record as with SES: `_dmarc.example.com TXT "v=DMARC1; p=none"`.
+
+2. **Create an API token** (My Profile > API Tokens) with **Email Sending**
+   write access on the account, plus **Queues** read + write for step 3. Set:
+
+   ```bash
+   CLOUDFLARE_API_TOKEN=<token>
+   CLOUDFLARE_ACCOUNT_ID=<account id from the dashboard sidebar>
+   ```
+
+3. **Route delivery events to a queue.** Bounces and complaints arrive as
+   queue messages and Museletter polls the queue over HTTPS: no Worker and no
+   inbound webhook to host. Create a queue, then subscribe it to Email Sending
+   events for your sending domain (`message.delivered`, `message.bounced`,
+   `message.complained`, `message.failed`, `message.rejected`) from the
+   queue's Event Subscriptions settings in the dashboard:
+
+   ```bash
+   npx wrangler queues create museletter-email-events
+   ```
+
+   Set `MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID` to the queue id shown on the
+   queue's page. Without it Museletter still sends, but bounces are only
+   caught when Cloudflare reports them synchronously in the send response,
+   and `doctor` warns.
+
+4. **Run `museletter doctor`.** It verifies the token, the Email Sending API,
+   and the events queue.
+
+One provider quirk to know: the Cloudflare REST send API returns no
+per-message id, so Museletter correlates delivery events by recipient
+address. Each send goes to exactly one recipient, which keeps that
+correlation narrow.
 
 ## Deployment
 
@@ -286,20 +340,24 @@ Set these in the server's environment (`museletter init` writes most of them).
 |---|---|---|
 | `MUSELETTER_API_KEY` | yes | admin credential (any long random string) |
 | `MUSELETTER_BASE_URL` | yes | public URL used in confirm/unsubscribe links |
-| `MUSELETTER_FROM_EMAIL` | yes | sender address (on an SES-verified domain) |
+| `MUSELETTER_FROM_EMAIL` | yes | sender address (on a domain verified with your provider) |
 | `MUSELETTER_FROM_NAME` | no | sender display name |
 | `MUSELETTER_POSTAL_ADDRESS` | no* | postal address in the footer (*required by CAN-SPAM) |
 | `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
-| `MUSELETTER_SEND_RATE` | no | emails/sec, default 10; keep under your SES rate |
-| `MUSELETTER_SES_CONFIGURATION_SET` | no | configuration set for event feedback |
-| `MUSELETTER_SNS_TOPIC_ARN` | recommended | your SNS topic ARN; the webhook rejects events from any other topic |
+| `MUSELETTER_EMAIL_PROVIDER` | no | `ses` (default) or `cloudflare` |
+| `MUSELETTER_SEND_RATE` | no | emails/sec, default 10; keep under your provider's rate |
+| `MUSELETTER_SES_CONFIGURATION_SET` | no | ses: configuration set for event feedback |
+| `MUSELETTER_SNS_TOPIC_ARN` | recommended | ses: your SNS topic ARN; the webhook rejects events from any other topic |
 | `MUSELETTER_TRUST_PROXY` | no | `true` when behind a proxy, so rate limiting uses `X-Forwarded-For` not the proxy IP |
 | `MUSELETTER_PUBLIC_SUBSCRIBE` | no | `false` disables the public `/subscribe` endpoint (add subscribers via the admin API instead) |
 | `MUSELETTER_TURNSTILE_SECRET` | no | Cloudflare Turnstile secret; when set, `/subscribe` requires a valid Turnstile token |
 | `MUSELETTER_CONFIRMATION_COOLDOWN` | no | min seconds between confirmation emails to one address, default 3600 |
 | `MUSELETTER_TEMPLATE_DIR` | no | server-side directory overriding the packaged templates (issue templates are better managed with `museletter templates`) |
 | `MUSELETTER_DB_PATH` | no | SQLite path, default `museletter.db` (the image uses `/data/museletter.db`) |
-| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes | SES credentials |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | yes (ses) | SES credentials |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | yes (cloudflare) | API token (Email Sending + Queues permissions) and account id |
+| `MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID` | recommended (cloudflare) | queue holding the Email Sending event subscription; feeds bounce/complaint suppression |
+| `MUSELETTER_CLOUDFLARE_POLL_SECONDS` | no | cloudflare: seconds between event queue polls, default 30 |
 
 The client CLI reads its server from `~/.config/museletter/config.toml`
 (written by `museletter connect`), or from `MUSELETTER_URL` +
@@ -519,9 +577,11 @@ the CLI reach and authenticate). Common cases:
   verified addresses until you request production access (SES console).
 - **Emails land in spam / DKIM or DMARC failing:** re-check the CNAME and TXT
   records from [AWS SES setup](#aws-ses-setup-once); `doctor` reports each.
-- **Bounces or complaints are not being suppressed:** the SNS webhook is not
-  wired. Confirm the configuration set, the HTTPS subscription to
-  `/webhooks/sns`, and that `MUSELETTER_SNS_TOPIC_ARN` matches your topic.
+- **Bounces or complaints are not being suppressed:** the event feed is not
+  wired. On SES, confirm the configuration set, the HTTPS subscription to
+  `/webhooks/sns`, and that `MUSELETTER_SNS_TOPIC_ARN` matches your topic. On
+  Cloudflare, confirm the queue's Email Sending event subscription exists and
+  that `MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID` is set; `doctor` checks both.
 - **The subscribe form returns 429 under load:** you are behind a proxy and
   rate limiting sees the proxy IP as one client. Set `MUSELETTER_TRUST_PROXY=true`.
 - **`campaigns send` refuses with 412:** do a test send first, or pass

@@ -386,6 +386,70 @@ def test_init_requires_base_url_and_email():
     assert "required" in result.output
 
 
+def test_init_cloudflare_provider(tmp_path):
+    env_file = tmp_path / ".env"
+    result = runner.invoke(
+        cli_app,
+        [
+            "init",
+            "--non-interactive",
+            "--provider",
+            "cloudflare",
+            "--cloudflare-account-id",
+            "acct123",
+            "--base-url",
+            "https://news.example.com",
+            "--from-email",
+            "you@example.com",
+            "--env-file",
+            str(env_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    env_text = env_file.read_text()
+    assert "MUSELETTER_EMAIL_PROVIDER=cloudflare\n" in env_text
+    assert "CLOUDFLARE_ACCOUNT_ID=acct123\n" in env_text
+    assert "MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID=\n" in env_text
+    assert "AWS_REGION" not in env_text
+    assert "CLOUDFLARE_API_TOKEN" in result.output, "final hint names the credential to set"
+
+
+def test_init_cloudflare_requires_account_id():
+    result = runner.invoke(
+        cli_app,
+        [
+            "init",
+            "--non-interactive",
+            "--provider",
+            "cloudflare",
+            "--base-url",
+            "https://x.example.com",
+            "--from-email",
+            "a@b.c",
+            "--env-file",
+            "-",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "cloudflare-account-id" in result.output
+
+    bad = runner.invoke(
+        cli_app,
+        [
+            "init",
+            "--non-interactive",
+            "--provider",
+            "mailgun",
+            "--base-url",
+            "https://x",
+            "--from-email",
+            "a@b.c",
+        ],
+    )
+    assert bad.exit_code == 1
+    assert "must be 'ses' or 'cloudflare'" in bad.output
+
+
 def test_preview_writes_all_surfaces(tmp_path):
     result = runner.invoke(cli_app, ["preview", "--no-open", "--out", str(tmp_path)])
     assert result.exit_code == 0, result.output

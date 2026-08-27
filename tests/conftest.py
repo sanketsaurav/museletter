@@ -3,13 +3,17 @@ import pytest
 
 from museletter.app import create_app
 from museletter.config import Settings
+from museletter.mailer import SendResult
 from museletter.ses import SESError
 
 
-class FakeSES:
+class FakeMailer:
+    """In-memory stand-in for a provider client (SES-shaped for doctor calls)."""
+
     def __init__(self):
         self.sent = []
         self.fail_next: list = []
+        self.result_next: list = []  # queued SendResults to simulate provider verdicts
 
     async def send_email(
         self, to, subject, html, text, *, from_email, from_name="", headers=None, reply_to=""
@@ -27,7 +31,9 @@ class FakeSES:
                 "headers": headers or {},
             }
         )
-        return f"msg-{len(self.sent)}"
+        if self.result_next:
+            return self.result_next.pop(0)
+        return SendResult(message_id=f"msg-{len(self.sent)}")
 
     async def get_account(self):
         return {
@@ -55,7 +61,7 @@ def make_settings(tmp_path) -> Settings:
         opt_in="double",
         send_rate=10000,
     )
-    settings.extra.update({"ses": FakeSES(), "disable_sender": True, "skip_sns_verify": True})
+    settings.extra.update({"mailer": FakeMailer(), "disable_sender": True, "skip_sns_verify": True})
     return settings
 
 
@@ -90,4 +96,4 @@ async def make_campaign(client, subject="Issue #1", body="Hello **world**", tag=
     return resp.json()
 
 
-__all__ = ["FakeSES", "SESError", "AUTH", "add_subscriber", "make_campaign", "make_settings"]
+__all__ = ["FakeMailer", "SESError", "AUTH", "add_subscriber", "make_campaign", "make_settings"]

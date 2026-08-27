@@ -1,9 +1,9 @@
 # Museletter - agent guide
 
 Headless, agent-first newsletter engine: one FastAPI + SQLite server, Amazon
-SES for delivery, a typer CLI (`museletter`) as the only client. No web UI by
-design. Read `README.md` for the product story; this file is for working on
-the code.
+SES or Cloudflare Email Service for delivery, a typer CLI (`museletter`) as
+the only client. No web UI by design. Read `README.md` for the product story;
+this file is for working on the code.
 
 ## Commands
 
@@ -24,21 +24,28 @@ running instance.
 
 ## Map (src/museletter/)
 
-- `app.py` - FastAPI factory; lifespan owns the DB, link-signing secret, SES
-  client, and sender task; idempotency middleware for `/v1/*` mutations
+- `app.py` - FastAPI factory; lifespan owns the DB, link-signing secret, mail
+  provider client, sender task (and the Cloudflare event poller); idempotency
+  middleware for `/v1/*` mutations
 - `config.py` - env-based `Settings` (`MUSELETTER_*`); `extra` dict carries
-  test injection points (`ses`, `sns_verifier`, `turnstile_verify`,
+  test injection points (`mailer`, `sns_verifier`, `turnstile_verify`,
   `disable_sender`, `skip_sns_verify`)
 - `db.py` - schema + helpers; the whole state is one SQLite file
 - `api/admin.py` - `/v1` bearer-auth CRUD + campaign lifecycle + doctor
 - `api/public.py` - subscribe/confirm/unsubscribe pages + SNS webhook
 - `sender.py` - background loop draining the campaign_recipients ledger
+- `mailer.py` - provider-neutral layer: `SendError`/`SendResult`, the `Mailer`
+  protocol, and `create_mailer` (picks the provider from `Settings`)
 - `ses.py` - hand-rolled SigV4 + SES v2 JSON API over httpx
+- `cloudflare.py` - Cloudflare Email Service REST client, queue event
+  normalization, and the `EventPoller` draining the events queue
+- `events.py` - shared application of delivery/bounce/complaint events to the
+  ledger and suppressions (used by the SNS webhook, poller, and sender)
 - `sns.py` - SNS signature verification + bounce/complaint/delivery parsing
 - `render.py` - markdown → email HTML/text; templates in `templates/*.html`
   use `string.Template` `$vars` (never str.format - CSS braces)
 - `tokens.py` - HMAC tokens for confirm/unsubscribe links
-- `doctor.py` - DNS/SES/config preflight checks
+- `doctor.py` - DNS/provider/config preflight checks (per-provider branches)
 - `clientconf.py` - CLIENT-side config: connect-token (`ml_...`) encode/decode
   and named profiles in `~/.config/museletter/config.toml` (env overrides)
 - `service.py` - launchd (macOS) / systemd `--user` (Linux) service install
@@ -63,13 +70,18 @@ running instance.
 - **Suppressions** are checked both at audience materialization and again at
   send time; permanent bounces/complaints auto-suppress. Never auto-remove.
 - **Ledger is the source of truth**: recipient rows go pending → sent →
-  delivered/bounced/complained (via SNS); suppressed/failed are terminal.
-  Resume-after-crash and no-double-send both depend on row state - any sender
-  change must preserve at-least-once + state-dedupe semantics.
+  delivered/bounced/complained (via SNS webhooks or Cloudflare queue events);
+  suppressed/failed are terminal. Events apply at-least-once from every
+  source, so `events.apply_events` transitions must stay state-guarded - any
+  sender change must preserve at-least-once + state-dedupe semantics.
+  Cloudflare's REST send returns no message id, so its events correlate by
+  recipient address, restricted to rows with a NULL `ses_message_id`.
 - **Keep the core simple and portable**: SQLite-dialect SQL only; the DB is
-  the queue (no Redis/Celery); SES over signed HTTPS only (no boto3, no SMTP).
-  This keeps the one-process/one-file design intact and easy to run anywhere.
-- **Tests never touch the network**: `FakeSES` from `tests/conftest.py` for
+  the queue (no Redis/Celery); providers speak plain HTTPS from this one
+  process (SigV4 for SES, bearer token + queue polling for Cloudflare - no
+  boto3, no provider SDKs, no SMTP). This keeps the one-process/one-file
+  design intact and easy to run anywhere.
+- **Tests never touch the network**: `FakeMailer` from `tests/conftest.py` for
   the app, `httpx.MockTransport` for client/verifier tests, in-test generated
   certs for SNS crypto.
 

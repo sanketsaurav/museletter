@@ -1,7 +1,8 @@
-"""The send loop: drains pending campaign_recipients rows through SES.
+"""The send loop: drains pending campaign_recipients rows through the
+configured mail provider.
 
 The ledger is the source of truth. Every recipient row moves
-pending → sent (→ delivered/bounced/complained via SNS webhooks), or to
+pending → sent (→ delivered/bounced/complained via provider events), or to
 suppressed/failed. A crash mid-campaign resumes from the remaining pending
 rows on restart; delivery is at-least-once with the ledger as dedupe.
 """
@@ -13,8 +14,9 @@ from string import Template
 import httpx
 
 from .db import BUILTIN_TEMPLATE_ID, utcnow
+from .events import record_event, suppress
+from .mailer import SendError
 from .render import personalize_email, render_campaign, validate_template
-from .ses import SESError
 from .tokens import make_token
 
 logger = logging.getLogger("museletter.sender")
@@ -91,7 +93,7 @@ class SenderLoop:
                 return True
             # The batch is an in-memory snapshot; re-read the row and subscriber
             # fresh so a suppression, unsubscribe, or opt-out that landed after
-            # the fetch is honored before we hit SES.
+            # the fetch is honored before we hit the provider.
             async with db.execute(
                 "SELECT cr.status AS row_status, s.status AS sub_status, "
                 "(SELECT 1 FROM suppressions sup WHERE sup.email = cr.email) AS suppressed "
@@ -130,7 +132,7 @@ class SenderLoop:
             attempts = recipient["attempts"] + 1
 
             try:
-                message_id = await self.app.state.ses.send_email(
+                result = await self.app.state.mailer.send_email(
                     recipient["email"],
                     subject,
                     html,
@@ -139,7 +141,7 @@ class SenderLoop:
                     from_name=settings.from_name,
                     headers=headers,
                 )
-            except SESError as exc:
+            except SendError as exc:
                 if exc.throttled:
                     # Not this recipient's fault: un-count the attempt, back off,
                     # and let the next tick retry the whole batch.
@@ -149,7 +151,7 @@ class SenderLoop:
                         (recipient["campaign_id"], recipient["subscriber_id"]),
                     )
                     await db.commit()
-                    logger.warning("SES throttled; backing off %.0fs", THROTTLE_BACKOFF_SECONDS)
+                    logger.warning("provider throttled; backing off %.0fs", THROTTLE_BACKOFF_SECONDS)
                     await asyncio.sleep(THROTTLE_BACKOFF_SECONDS)
                     return True
                 await self._handle_send_error(recipient, attempts, f"{exc.code}: {exc.message}")
@@ -160,8 +162,23 @@ class SenderLoop:
                 continue
 
             # Guard on status = 'pending': if an unsubscribe flipped this row to
-            # 'suppressed' during the SES call, don't overwrite that with 'sent'.
-            await self._mark(recipient, "sent", message_id=message_id, only_pending=True)
+            # 'suppressed' during the provider call, don't overwrite it.
+            if result.outcome == "bounced":
+                # The provider refused the address as a known hard bounce (its
+                # own suppression list) in the send response itself. Terminal:
+                # same treatment as an async permanent bounce event.
+                detail = result.detail or "permanent bounce in the send response"
+                await self._mark(
+                    recipient, "bounced", message_id=result.message_id, error=detail, only_pending=True
+                )
+                await record_event(db, "bounce", recipient["email"], result.message_id, detail)
+                await suppress(db, recipient["email"], "bounce", detail)
+                await db.commit()
+            elif result.outcome == "delivered":
+                # Some providers confirm delivery synchronously; skip the 'sent' hop.
+                await self._mark(recipient, "delivered", message_id=result.message_id, only_pending=True)
+            else:
+                await self._mark(recipient, "sent", message_id=result.message_id, only_pending=True)
             await asyncio.sleep(delay)
         return True
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from ..db import new_id, utcnow
+from ..events import apply_events
 from ..render import load_template, render_confirmation
 from ..sns import is_amazon_sns_url, parse_ses_events
 from ..tokens import make_token, verify_token
@@ -103,7 +104,7 @@ async def _send_confirmation_email(request: Request, lst, subscriber_id: str, em
     subject, html, text = render_confirmation(
         list_name=lst["name"], confirm_url=confirm_url, postal_address=settings.postal_address
     )
-    await request.app.state.ses.send_email(
+    await request.app.state.mailer.send_email(
         email, subject, html, text, from_email=settings.from_email, from_name=settings.from_name
     )
 
@@ -353,40 +354,14 @@ async def sns_webhook(request: Request):
 
     message = envelope.get("Message", "")
     events = parse_ses_events(message)
-    now = utcnow()
     if not events:
-        await db.execute(
-            "INSERT INTO events (type, email, ses_message_id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
-            ("other", "", None, str(message)[:10000], now),
+        await apply_events(
+            db,
+            [{"type": "other", "email": "", "message_id": "", "permanent": False, "detail": str(message)}],
         )
-        await db.commit()
         return {"ok": True, "processed": 0}
 
-    for event in events:
-        await db.execute(
-            "INSERT INTO events (type, email, ses_message_id, payload, created_at) VALUES (?, ?, ?, ?, ?)",
-            (event["type"], event["email"], event["message_id"], event["detail"], now),
-        )
-        if event["type"] == "delivery":
-            await db.execute(
-                "UPDATE campaign_recipients SET status = 'delivered', updated_at = ? "
-                "WHERE ses_message_id = ? AND status = 'sent'",
-                (now, event["message_id"]),
-            )
-        elif event["type"] in ("bounce", "complaint"):
-            new_status = "bounced" if event["type"] == "bounce" else "complained"
-            await db.execute(
-                "UPDATE campaign_recipients SET status = ?, error = ?, updated_at = ? WHERE ses_message_id = ?",
-                (new_status, event["detail"], now, event["message_id"]),
-            )
-            if event["permanent"]:
-                await db.execute(
-                    "INSERT OR IGNORE INTO suppressions (email, reason, detail, created_at) VALUES (?, ?, ?, ?)",
-                    (event["email"], event["type"], event["detail"], now),
-                )
-                await db.execute(
-                    "UPDATE subscribers SET status = ? WHERE email = ? AND status IN ('active', 'unconfirmed')",
-                    (new_status, event["email"]),
-                )
-    await db.commit()
+    # SES events carry the message id every ledger row stored at send time, so
+    # no email fallback here: an id that matches nothing must stay a no-op.
+    await apply_events(db, events)
     return {"ok": True, "processed": len(events)}

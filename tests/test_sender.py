@@ -27,7 +27,7 @@ async def _stats(client, cid):
 
 async def test_ledger_send_marks_rows_and_completes(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "a@x.com", name="Ada")
     await add_subscriber(client, "b@x.com")
     await add_subscriber(client, "c@x.com")
@@ -44,25 +44,25 @@ async def test_ledger_send_marks_rows_and_completes(app_client):
     assert stats["suppressed"] == 1
     assert stats["pending"] == 0
 
-    assert len(fake_ses.sent) == 2
-    for message in fake_ses.sent:
+    assert len(fake_mailer.sent) == 2
+    for message in fake_mailer.sent:
         assert "List-Unsubscribe" in message["headers"]
         assert message["headers"]["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
         assert "http://test.local/unsubscribe/" in message["html"]
-    ada = next(m for m in fake_ses.sent if m["to"] == "a@x.com")
+    ada = next(m for m in fake_mailer.sent if m["to"] == "a@x.com")
     assert "Hi Ada," in ada["html"]
-    other = next(m for m in fake_ses.sent if m["to"] == "b@x.com")
+    other = next(m for m in fake_mailer.sent if m["to"] == "b@x.com")
     assert "Hi there," in other["html"]
     assert ada["headers"]["List-Unsubscribe"] != other["headers"]["List-Unsubscribe"]
 
 
 async def test_permanent_error_fails_after_max_attempts(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "a@x.com")
     cid = await _start_campaign(client)
 
-    fake_ses.fail_next = [SESError(400, "MessageRejected", "nope")] * sender_mod.MAX_ATTEMPTS
+    fake_mailer.fail_next = [SESError(400, "MessageRejected", "nope")] * sender_mod.MAX_ATTEMPTS
     await _drain(app)
 
     stats = await _stats(client, cid)
@@ -73,12 +73,12 @@ async def test_permanent_error_fails_after_max_attempts(app_client):
 async def test_throttle_backs_off_without_burning_attempts(app_client, monkeypatch):
     monkeypatch.setattr(sender_mod, "THROTTLE_BACKOFF_SECONDS", 0)
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "a@x.com")
     cid = await _start_campaign(client)
 
     loop = SenderLoop(app)
-    fake_ses.fail_next = [SESError(429, "TooManyRequestsException", "slow down")]
+    fake_mailer.fail_next = [SESError(429, "TooManyRequestsException", "slow down")]
     assert await loop.tick() is True
 
     db = app.state.db
@@ -93,7 +93,7 @@ async def test_throttle_backs_off_without_burning_attempts(app_client, monkeypat
 
 async def test_resume_after_restart(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     for i in range(5):
         await add_subscriber(client, f"r{i}@x.com")
     cid = await _start_campaign(client)
@@ -108,4 +108,4 @@ async def test_resume_after_restart(app_client):
     stats = await _stats(client, cid)
     assert stats["status"] == "sent"
     assert stats["sent"] == 5
-    assert len(fake_ses.sent) == 5, "no double sends across restarts"
+    assert len(fake_mailer.sent) == 5, "no double sends across restarts"

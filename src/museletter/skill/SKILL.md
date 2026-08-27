@@ -73,5 +73,7 @@ for the full workflow and the template contract.
 - `recipes/customize-template.md` - design a custom look for issue emails
 - `recipes/connect-website.md` - wire a website's signup form to the server
 - `recipes/aws-ses-setup.md` - first-time SES + SNS wiring (run once per install)
+- `recipes/cloudflare-setup.md` - first-time Cloudflare Email Service wiring
+  (the alternative to SES; run once per install)
 - `recipes/migrate-from-another-platform.md` - import from Mailchimp/Buttondown/etc.
 - `recipes/health-check.md` - periodic deliverability and list hygiene review
