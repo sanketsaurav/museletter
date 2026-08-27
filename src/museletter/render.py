@@ -40,7 +40,7 @@ _SYSTEM_TEMPLATE = load_template("email-system.html")
 
 # The placeholders a campaign template may use, and the two it must use:
 # $content is the rendered issue body, $footer carries the unsubscribe link and
-# postal address the law (and SES's complaint rates) require in every send.
+# postal address the law (and provider complaint rates) require in every send.
 TEMPLATE_VARS = ("subject", "header", "content", "footer")
 REQUIRED_TEMPLATE_VARS = ("content", "footer")
 MAX_TEMPLATE_BYTES = 102_400

@@ -55,7 +55,7 @@ def main() -> None:
     formula = f'''class Museletter < Formula
   include Language::Python::Virtualenv
 
-  desc "Headless, agent-first newsletter engine using SQLite and Amazon SES"
+  desc "Headless, agent-first newsletter engine using SQLite and SES or Cloudflare"
   homepage "https://github.com/sanketsaurav/museletter"
   url "{mu_url}"
   sha256 "{mu_sha}"

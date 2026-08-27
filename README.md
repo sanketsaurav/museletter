@@ -542,7 +542,7 @@ museletter service <cmd>         install|restart|uninstall|status (launchd/syste
 museletter connect <token|--url> point the CLI at a server, save a profile
 museletter profiles <cmd>        list|use|rm (switch between servers)
 museletter status                server, reachability, auth, per-list counts
-museletter doctor                DNS/DKIM/DMARC/SES/config health checks
+museletter doctor                DNS/DKIM/DMARC/provider/config health checks
 museletter health                liveness of the configured server
 museletter docs                  print this README (offline, agent-readable)
 museletter preview               open every reader-facing surface in a browser
@@ -604,8 +604,8 @@ museletter skill install            # ~/.claude/skills/museletter (all projects)
 museletter skill install --project  # ./.claude/skills/museletter (this repo)
 ```
 
-The skill's recipes cover publishing an issue, first-time SES setup, migrating
-from another platform, and a periodic health check. The skill source lives at
+The skill's recipes cover publishing an issue, first-time provider setup (SES
+or Cloudflare), migrating from another platform, and a periodic health check. The skill source lives at
 [`src/museletter/skill/`](src/museletter/skill/).
 
 The whole tool is built for agents: idempotency keys on mutations, dry runs,

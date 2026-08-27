@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "museletter"
 version = "1.1.0"
-description = "A headless, agent-first newsletter engine. One container, one SQLite database, Amazon SES."
+description = "A headless, agent-first newsletter engine. One container, one SQLite database, and your own email provider: Amazon SES or Cloudflare Email Service."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
-keywords = ["newsletter", "email", "ses", "headless", "self-hosted"]
+keywords = ["newsletter", "email", "ses", "amazon-ses", "cloudflare", "headless", "self-hosted"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
