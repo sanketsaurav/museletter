@@ -24,8 +24,8 @@ async def test_send_guardrails(app_client):
 
     resp = await client.post(f"/v1/campaigns/{cid}/test", json={"to": "me@x.com"}, headers=AUTH)
     assert resp.status_code == 200
-    fake_ses = app.state.settings.extra["ses"]
-    assert fake_ses.sent[-1]["subject"].startswith("[test] ")
+    fake_mailer = app.state.settings.extra["mailer"]
+    assert fake_mailer.sent[-1]["subject"].startswith("[test] ")
 
     resp = await client.post(f"/v1/campaigns/{cid}/send", json={"confirm": True}, headers=AUTH)
     assert resp.status_code == 200

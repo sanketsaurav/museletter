@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from conftest import AUTH, FakeSES, add_subscriber, make_campaign, make_settings
+from conftest import AUTH, FakeMailer, add_subscriber, make_campaign, make_settings
 from museletter.app import create_app
 from museletter.sender import SenderLoop
 from museletter.tokens import make_token
@@ -133,7 +133,7 @@ async def test_admin_unsubscribe_suppresses_pending_rows(app_client):
 
 async def test_sender_skips_subscriber_unsubscribed_after_materialization(app_client):
     app, client = app_client
-    fake_ses: FakeSES = app.state.settings.extra["ses"]
+    fake_mailer: FakeMailer = app.state.settings.extra["mailer"]
     sub = await add_subscriber(client, "opt@x.com")
     await add_subscriber(client, "stay@x.com")
     campaign = await make_campaign(client)
@@ -149,7 +149,7 @@ async def test_sender_skips_subscriber_unsubscribed_after_materialization(app_cl
         if not await loop.tick():
             break
 
-    sent_to = {m["to"] for m in fake_ses.sent}
+    sent_to = {m["to"] for m in fake_mailer.sent}
     assert "opt@x.com" not in sent_to, "must not email a subscriber who unsubscribed after materialization"
     assert "stay@x.com" in sent_to
 

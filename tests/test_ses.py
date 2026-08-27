@@ -116,7 +116,7 @@ async def test_send_email_request_and_response(monkeypatch):
         lambda r: httpx.Response(200, json={"MessageId": "msg-42"}),
         configuration_set="museletter",
     )
-    message_id = await client.send_email(
+    result = await client.send_email(
         "reader@example.com",
         "Hello",
         "<p>hi</p>",
@@ -129,7 +129,8 @@ async def test_send_email_request_and_response(monkeypatch):
         },
         reply_to="replies@example.com",
     )
-    assert message_id == "msg-42"
+    assert result.message_id == "msg-42"
+    assert result.outcome == "sent"
 
     request = requests[0]
     assert request.method == "POST"

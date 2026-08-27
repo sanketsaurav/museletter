@@ -449,7 +449,7 @@ def serve(
 
 @app.command()
 def doctor():
-    """Check DNS, SES account status, and configuration."""
+    """Check DNS, email provider account status, and configuration."""
     data = _call("GET", "/v1/doctor")
     if STATE["json"]:
         typer.echo(json.dumps(data, indent=2))
@@ -1238,7 +1238,11 @@ def init(
     from_email: str = typer.Option(None, "--from-email", help="sender address"),
     from_name: str = typer.Option("", "--from-name", help="sender display name"),
     postal_address: str = typer.Option("", "--postal-address", help="footer postal address"),
-    region: str = typer.Option("us-east-1", "--region", help="AWS region"),
+    provider: str = typer.Option("ses", "--provider", help="email provider: ses or cloudflare"),
+    region: str = typer.Option("us-east-1", "--region", help="AWS region (ses provider)"),
+    cloudflare_account_id: str = typer.Option(
+        "", "--cloudflare-account-id", help="Cloudflare account id (cloudflare provider)"
+    ),
     api_key: str = typer.Option(None, "--api-key", help="admin API key (generated if omitted)"),
     env_file: str = typer.Option(".env", "--env-file", help="path to write env to; '-' to print only"),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="never prompt; use flags/defaults"),
@@ -1246,13 +1250,22 @@ def init(
     """Bootstrap a server: generate an API key, write an env file, print a connect token."""
     import secrets
 
+    provider = provider.strip().lower()
+    if provider not in ("ses", "cloudflare"):
+        typer.echo("--provider must be 'ses' or 'cloudflare'", err=True)
+        raise typer.Exit(1)
     if not non_interactive:
         base_url = base_url or typer.prompt("Public base URL (e.g. https://news.example.com)")
-        from_email = from_email or typer.prompt("Sender email (SES-verified)")
+        from_email = from_email or typer.prompt("Sender email (on your verified sending domain)")
         from_name = from_name or typer.prompt("Sender name", default="")
         postal_address = postal_address or typer.prompt("Postal address (CAN-SPAM)", default="")
+        if provider == "cloudflare":
+            cloudflare_account_id = cloudflare_account_id or typer.prompt("Cloudflare account id")
     if not base_url or not from_email:
         typer.echo("--base-url and --from-email are required", err=True)
+        raise typer.Exit(1)
+    if provider == "cloudflare" and not cloudflare_account_id:
+        typer.echo("--cloudflare-account-id is required with --provider cloudflare", err=True)
         raise typer.Exit(1)
     api_key = api_key or secrets.token_hex(32)
 
@@ -1262,8 +1275,14 @@ def init(
         "MUSELETTER_FROM_EMAIL": from_email,
         "MUSELETTER_FROM_NAME": from_name,
         "MUSELETTER_POSTAL_ADDRESS": postal_address,
-        "AWS_REGION": region,
     }
+    if provider == "cloudflare":
+        env["MUSELETTER_EMAIL_PROVIDER"] = "cloudflare"
+        env["CLOUDFLARE_ACCOUNT_ID"] = cloudflare_account_id
+        # Left empty on purpose: fill it in after creating the events queue.
+        env["MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID"] = ""
+    else:
+        env["AWS_REGION"] = region
     # Written unquoted so `docker --env-file` reads it correctly (it keeps quotes
     # literally); `museletter serve --env-file` and systemd read this format too.
     env_text = "".join(f"{k}={v}\n" for k, v in env.items())
@@ -1288,9 +1307,15 @@ def init(
         typer.echo(f"wrote {wrote_path} (keep it secret)")
     typer.echo("\nStart the server with this env, then connect a client with:\n")
     typer.echo(f"  museletter connect {token}\n")
-    typer.echo(
-        "Set your AWS credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) too, then run `museletter doctor`."
-    )
+    if provider == "cloudflare":
+        typer.echo(
+            "Set CLOUDFLARE_API_TOKEN too (Email Sending + Queues permissions), then run `museletter doctor`."
+        )
+    else:
+        typer.echo(
+            "Set your AWS credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) too, "
+            "then run `museletter doctor`."
+        )
 
 
 # ---------- service ----------

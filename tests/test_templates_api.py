@@ -135,20 +135,20 @@ async def test_edit_rejects_invalid_html_and_rename_collisions(app_client):
 
 async def test_template_test_send(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await make_template(client)
 
     resp = await client.post("/v1/templates/fancy/test", json={"to": "me@x.com"}, headers=AUTH)
     assert resp.status_code == 200
     assert resp.json()["sent_to"] == "me@x.com"
-    message = fake_ses.sent[-1]
+    message = fake_mailer.sent[-1]
     assert message["subject"].startswith("[template fancy]")
     assert 'id="custom-shell"' in message["html"]
     assert "Unsubscribe" in message["html"], "the sample must carry the footer"
 
     resp = await client.post("/v1/templates/default/test", json={"to": "me@x.com"}, headers=AUTH)
     assert resp.status_code == 200
-    assert "custom-shell" not in fake_ses.sent[-1]["html"]
+    assert "custom-shell" not in fake_mailer.sent[-1]["html"]
 
     assert (
         await client.post("/v1/templates/fancy/test", json={"to": "nope"}, headers=AUTH)
@@ -220,7 +220,7 @@ async def test_list_default_and_campaign_override_resolution(app_client):
 
 async def test_campaign_test_send_uses_effective_template(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await make_template(client)
     campaign = await make_campaign(client)
     resp = await client.patch(f"/v1/campaigns/{campaign['id']}", json={"template": "fancy"}, headers=AUTH)
@@ -228,12 +228,12 @@ async def test_campaign_test_send_uses_effective_template(app_client):
 
     resp = await client.post(f"/v1/campaigns/{campaign['id']}/test", json={"to": "me@x.com"}, headers=AUTH)
     assert resp.status_code == 200
-    assert 'id="custom-shell"' in fake_ses.sent[-1]["html"]
+    assert 'id="custom-shell"' in fake_mailer.sent[-1]["html"]
 
 
 async def test_sender_renders_through_effective_template(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "a@x.com", name="Ada")
     await make_template(client, name="listwide")
     await make_template(client, name="special", html=SECOND)
@@ -244,7 +244,7 @@ async def test_sender_renders_through_effective_template(app_client):
         f"/v1/campaigns/{inheriting['id']}/send", json={"confirm": True, "skip_test": True}, headers=AUTH
     )
     await _drain(app)
-    message = fake_ses.sent[-1]
+    message = fake_mailer.sent[-1]
     assert 'id="custom-shell"' in message["html"]
     assert "http://test.local/unsubscribe/" in message["html"], "footer must survive a custom shell"
 
@@ -257,12 +257,12 @@ async def test_sender_renders_through_effective_template(app_client):
         f"/v1/campaigns/{resp.json()['id']}/send", json={"confirm": True, "skip_test": True}, headers=AUTH
     )
     await _drain(app)
-    assert 'id="second-shell"' in fake_ses.sent[-1]["html"]
+    assert 'id="second-shell"' in fake_mailer.sent[-1]["html"]
 
 
 async def test_sender_falls_back_to_builtin_when_template_row_vanishes(app_client):
     app, client = app_client
-    fake_ses = app.state.settings.extra["ses"]
+    fake_mailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "a@x.com")
     await make_template(client)
     campaign = await make_campaign(client)
@@ -278,8 +278,8 @@ async def test_sender_falls_back_to_builtin_when_template_row_vanishes(app_clien
     await app.state.db.commit()
 
     await _drain(app)
-    assert fake_ses.sent[-1]["to"] == "a@x.com"
-    assert "custom-shell" not in fake_ses.sent[-1]["html"]
+    assert fake_mailer.sent[-1]["to"] == "a@x.com"
+    assert "custom-shell" not in fake_mailer.sent[-1]["html"]
 
 
 # ---------- guardrails ----------

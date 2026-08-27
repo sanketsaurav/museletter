@@ -4,7 +4,7 @@ Turnstile, and the disable flag."""
 import httpx
 import pytest
 
-from conftest import FakeSES, add_subscriber, make_settings
+from conftest import FakeMailer, add_subscriber, make_settings
 from museletter.app import create_app
 
 
@@ -41,7 +41,7 @@ async def custom(tmp_path):
 
 async def test_confirmation_email_sent_once_within_cooldown(custom):
     app, client = await custom()  # default cooldown 3600s
-    fake: FakeSES = app.state.settings.extra["ses"]
+    fake: FakeMailer = app.state.settings.extra["mailer"]
 
     for _ in range(3):
         resp = await client.post("/subscribe/default", json={"email": "victim@x.com"})
@@ -52,7 +52,7 @@ async def test_confirmation_email_sent_once_within_cooldown(custom):
 
 async def test_confirmation_resends_after_cooldown(custom):
     app, client = await custom(confirmation_cooldown=0.0)
-    fake: FakeSES = app.state.settings.extra["ses"]
+    fake: FakeMailer = app.state.settings.extra["mailer"]
 
     await client.post("/subscribe/default", json={"email": "r@x.com"})
     await client.post("/subscribe/default", json={"email": "r@x.com"})
@@ -64,7 +64,7 @@ async def test_confirmation_resends_after_cooldown(custom):
 
 async def test_response_does_not_reveal_membership(custom):
     app, client = await custom()
-    fake: FakeSES = app.state.settings.extra["ses"]
+    fake: FakeMailer = app.state.settings.extra["mailer"]
     await add_subscriber(client, "member@x.com")  # active subscriber
 
     # Probing an existing active member looks identical to a fresh signup.
@@ -85,7 +85,7 @@ async def _fake_turnstile(secret, token, remoteip=""):
 async def test_turnstile_required_when_configured(custom):
     app, client = await custom(turnstile_secret="sekret")
     app.state.turnstile_verify = _fake_turnstile
-    fake: FakeSES = app.state.settings.extra["ses"]
+    fake: FakeMailer = app.state.settings.extra["mailer"]
 
     missing = await client.post("/subscribe/default", json={"email": "a@x.com"})
     assert missing.status_code == 403

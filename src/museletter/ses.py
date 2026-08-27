@@ -14,17 +14,11 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
+from .mailer import SendError, SendResult
 
-class SESError(Exception):
-    def __init__(self, status: int, code: str, message: str):
-        self.status = status
-        self.code = code
-        self.message = message
-        super().__init__(f"SES {status} {code}: {message}")
 
-    @property
-    def throttled(self) -> bool:
-        return self.status == 429 or "TooManyRequests" in self.code or "Throttling" in self.code
+class SESError(SendError):
+    provider = "SES"
 
 
 def _hmac(key: bytes, msg: str) -> bytes:
@@ -132,8 +126,8 @@ class SESClient:
         from_name: str = "",
         headers: dict[str, str] | None = None,
         reply_to: str = "",
-    ) -> str:
-        """Send one email, returns the SES message id."""
+    ) -> SendResult:
+        """Send one email; the result carries the SES message id."""
         sender = f'"{from_name.replace(chr(34), "")}" <{from_email}>' if from_name else from_email
         simple: dict = {
             "Subject": {"Data": subject, "Charset": "UTF-8"},
@@ -154,7 +148,7 @@ class SESClient:
         if self.configuration_set:
             body["ConfigurationSetName"] = self.configuration_set
         data = await self._request("POST", "/v2/email/outbound-emails", body)
-        return data.get("MessageId", "")
+        return SendResult(message_id=data.get("MessageId", ""))
 
     async def get_account(self) -> dict:
         return await self._request("GET", "/v2/email/account")
