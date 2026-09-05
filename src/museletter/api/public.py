@@ -102,7 +102,10 @@ async def _send_confirmation_email(request: Request, lst, subscriber_id: str, em
     secret = request.app.state.secret
     confirm_url = f"{settings.base_url}/confirm/{make_token(secret, 'confirm', subscriber_id)}"
     subject, html, text = render_confirmation(
-        list_name=lst["name"], confirm_url=confirm_url, postal_address=settings.postal_address
+        list_name=lst["name"],
+        confirm_url=confirm_url,
+        postal_address=settings.postal_address,
+        attribution=settings.attribution,
     )
     await request.app.state.mailer.send_email(
         email,

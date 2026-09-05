@@ -347,6 +347,7 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_FROM_NAME` | no | sender display name |
 | `MUSELETTER_REPLY_TO` | no | Reply-To address on all outgoing email; when unset, replies go to the from address |
 | `MUSELETTER_POSTAL_ADDRESS` | no* | postal address in the footer (*required by CAN-SPAM) |
+| `MUSELETTER_ATTRIBUTION` | no | `false` removes the "Sent with Museletter" line from email footers (default `true`) |
 | `MUSELETTER_OPT_IN` | no | `double` (default) or `single` |
 | `MUSELETTER_EMAIL_PROVIDER` | no | `ses` (default) or `cloudflare` |
 | `MUSELETTER_SEND_RATE` | no | emails/sec, default 10; keep under your provider's rate |
@@ -444,7 +445,9 @@ widget's `cf-turnstile-response` token is verified on every submit.
 Campaign bodies are Markdown. Personalization tokens are `{{name}}`,
 `{{first_name}}` (the first word of the name), and `{{email}}`, with fallbacks
 like `{{first_name|there}}`. The unsubscribe footer and postal address are added
-automatically; never write your own unsubscribe link.
+automatically; never write your own unsubscribe link. The footer ends with a
+small "Sent with Museletter" line; set `MUSELETTER_ATTRIBUTION=false` on the
+server to leave it out.
 
 Preview the rendered result before sending: `campaigns preview <id>` prints the
 plain-text version, and `campaigns preview <id> --html out.html` writes the full

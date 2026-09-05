@@ -131,3 +131,30 @@ def test_template_override(monkeypatch, tmp_path):
     assert template_source("email.html").startswith("OVERRIDDEN")
     # A file not present in the override dir falls back to the packaged default.
     assert ".panel" in template_source("page.html")
+
+
+def test_attribution_is_in_both_footers_by_default():
+    _, html, text = build_email("S", "Body", unsubscribe_url="http://x/u", list_name="L", postal_address="P")
+    assert "Sent with" in html and "github.com/sanketsaurav/museletter" in html
+    assert text.rstrip().endswith("Sent with Museletter")
+
+    _, html, text = render_confirmation(list_name="L", confirm_url="http://x/c", postal_address="P")
+    assert "Sent with" in html
+    assert text.rstrip().endswith("Sent with Museletter")
+
+
+def test_attribution_off_keeps_the_legal_footer():
+    _, html, text = build_email(
+        "S", "Body", unsubscribe_url="http://x/u", list_name="L", postal_address="P", attribution=False
+    )
+    assert "Sent with" not in html and "Sent with" not in text
+    assert 'href="http://x/u"' in html and "L · P" in html
+    # No dangling spacer line where the attribution used to be.
+    assert text.rstrip().endswith("Unsubscribe: http://x/u")
+
+    _, html, text = render_confirmation(
+        list_name="L", confirm_url="http://x/c", postal_address="P", attribution=False
+    )
+    assert "Sent with" not in html and "Sent with" not in text
+    assert "L · P" in html
+    assert text.rstrip().endswith("L · P")

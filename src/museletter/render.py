@@ -88,26 +88,34 @@ def validate_template(html: str) -> list[str]:
     return problems
 
 
-def _footer_html(list_name: str, postal_address: str, unsubscribe_url: str = "") -> str:
+def _footer_html(
+    list_name: str, postal_address: str, unsubscribe_url: str = "", attribution: bool = True
+) -> str:
     # Identity and the unsubscribe link share one line; the attribution sits on
     # its own line below, set apart with space above so it reads as separate.
     line = [html_mod.escape(p) for p in (list_name, postal_address) if p]
     if unsubscribe_url:
         line.append(f'<a href="{html_mod.escape(unsubscribe_url)}" style="color:#74747F;">Unsubscribe</a>')
+    top = " · ".join(line)
+    if not attribution:
+        return top
     sent = (
         'Sent with <a href="https://github.com/sanketsaurav/museletter" style="color:#74747F;">Museletter</a>'
     )
-    top = " · ".join(line)
     return f'{top}<div style="padding-top:12px;">{sent}</div>' if top else sent
 
 
-def _footer_text(list_name: str, postal_address: str, unsubscribe_url: str = "") -> list[str]:
+def _footer_text(
+    list_name: str, postal_address: str, unsubscribe_url: str = "", attribution: bool = True
+) -> list[str]:
     lines = []
     identity = " · ".join(p for p in (list_name, postal_address) if p)
     if identity:
         lines.append(identity)
     if unsubscribe_url:
         lines.append(f"Unsubscribe: {unsubscribe_url}")
+    if not attribution:
+        return lines
     if lines:
         lines.append("")  # blank line so the attribution reads as separate
     lines.append("Sent with Museletter")
@@ -162,6 +170,7 @@ def personalize_email(
     list_name: str = "",
     postal_address: str = "",
     template: Template | None = None,
+    attribution: bool = True,
 ) -> tuple[str, str, str]:
     """Personalize a pre-rendered campaign for one recipient. Returns (subject, html, text).
     A custom template (validated with validate_template) replaces the built-in shell."""
@@ -173,9 +182,10 @@ def personalize_email(
         subject=html_mod.escape(subject),
         header=html_mod.escape(list_name) if list_name else "Newsletter",
         content=content_html,
-        footer=_footer_html(list_name, postal_address, unsubscribe_url),
+        footer=_footer_html(list_name, postal_address, unsubscribe_url, attribution),
     )
-    text = content_text + "\n\n" + "\n".join(_footer_text(list_name, postal_address, unsubscribe_url)) + "\n"
+    footer_text = "\n".join(_footer_text(list_name, postal_address, unsubscribe_url, attribution))
+    text = content_text + "\n\n" + footer_text + "\n"
     return subject, html, text
 
 
@@ -187,7 +197,7 @@ _BTN_STYLE = (
 
 
 def render_confirmation(
-    *, list_name: str, confirm_url: str, postal_address: str = ""
+    *, list_name: str, confirm_url: str, postal_address: str = "", attribution: bool = True
 ) -> tuple[str, str, str]:
     """Render the double opt-in confirmation email: sans-serif, with the confirm
     button placed after the message. A transactional email, not an issue."""
@@ -206,14 +216,14 @@ def render_confirmation(
         subject=html_mod.escape(subject),
         header=ln,
         content=content,
-        footer=_footer_html(list_name, postal_address),
+        footer=_footer_html(list_name, postal_address, attribution=attribution),
     )
     text = (
         f"Confirm your subscription\n\n"
         f"Someone (hopefully you) asked to subscribe this address to {list_name}. "
         f"Confirm here and the next issue lands in your inbox:\n{confirm_url}\n\n"
         f"If this was not you, you can safely ignore this email.\n\n"
-        + "\n".join(_footer_text(list_name, postal_address))
+        + "\n".join(_footer_text(list_name, postal_address, attribution=attribution))
         + "\n"
     )
     return subject, html, text
@@ -229,6 +239,7 @@ def build_email(
     list_name: str = "",
     postal_address: str = "",
     template: Template | None = None,
+    attribution: bool = True,
 ) -> tuple[str, str, str]:
     """Render and personalize a campaign for a single recipient. Convenience
     wrapper for one-off sends (confirmation, test, preview); the bulk send loop
@@ -241,4 +252,5 @@ def build_email(
         list_name=list_name,
         postal_address=postal_address,
         template=template,
+        attribution=attribution,
     )

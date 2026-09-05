@@ -117,6 +117,7 @@ class SenderLoop:
                 list_name=campaign["list_name"],
                 postal_address=settings.postal_address,
                 template=template,
+                attribution=settings.attribution,
             )
             headers = {
                 "List-Unsubscribe": f"<{unsubscribe_url}>",

@@ -13,7 +13,9 @@ Goal: the user wants their issues styled differently (brand colors, logo, layout
    `$header` (the publication name) optional. Use `$$` for a literal dollar
    sign. Email-client rules apply: inline styles, table layout, no external
    CSS/JS; keep the file well under Gmail's 102KB clip point. The server
-   validates on every edit and rejects broken templates.
+   validates on every edit and rejects broken templates. `$footer` also ends
+   with a "Sent with Museletter" line; a template cannot drop it, but the
+   server operator can with `MUSELETTER_ATTRIBUTION=false`.
 3. Push it back and email the user a sample issue rendered through it:
    ```bash
    museletter templates edit <name> --file template.html

@@ -666,6 +666,7 @@ async def test_send_template(request: Request, ref: str, body: TestSendIn):
         list_name=first_list["name"] if first_list else "Newsletter",
         postal_address=settings.postal_address,
         template=None if t["builtin"] else Template(t["html"]),
+        attribution=settings.attribution,
     )
     try:
         result = await request.app.state.mailer.send_email(
@@ -825,6 +826,7 @@ def _render_campaign_preview(request: Request, row, lst, template: Template | No
         list_name=lst["name"],
         postal_address=settings.postal_address,
         template=template,
+        attribution=settings.attribution,
     )
 
 

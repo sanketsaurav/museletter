@@ -11,6 +11,7 @@ class Settings:
     from_name: str = ""
     reply_to: str = ""  # optional Reply-To on all outgoing email; replies go to from_email when empty
     postal_address: str = ""
+    attribution: bool = True  # the "Sent with Museletter" line in email footers; false drops it
     opt_in: str = "double"  # "double" or "single"
     send_rate: float = 10.0  # emails per second, must stay under the provider's account rate
     email_provider: str = "ses"  # "ses" or "cloudflare"
@@ -38,6 +39,7 @@ class Settings:
             from_name=env.get("MUSELETTER_FROM_NAME", ""),
             reply_to=env.get("MUSELETTER_REPLY_TO", ""),
             postal_address=env.get("MUSELETTER_POSTAL_ADDRESS", ""),
+            attribution=env.get("MUSELETTER_ATTRIBUTION", "true").lower() not in ("0", "false", "no"),
             opt_in=env.get("MUSELETTER_OPT_IN", "double"),
             send_rate=float(env.get("MUSELETTER_SEND_RATE", "10")),
             email_provider=env.get("MUSELETTER_EMAIL_PROVIDER", "ses").strip().lower(),

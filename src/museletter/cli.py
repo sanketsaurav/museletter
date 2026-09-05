@@ -635,6 +635,7 @@ def preview(
         return
 
     from .api.public import _page
+    from .config import Settings
     from .render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, render_confirmation
 
     def page_html(*a, **k) -> str:
@@ -642,6 +643,9 @@ def preview(
         return bytes(_page(*a, **k).body).decode()
 
     ln, addr = "Your Newsletter", "123 Main St, Your City"
+    # Read from the environment like MUSELETTER_TEMPLATE_DIR, so the preview
+    # shows the footer the server would actually send.
+    attribution = Settings.from_env().attribution
     _, issue_html, _ = build_email(
         SAMPLE_ISSUE_SUBJECT,
         SAMPLE_ISSUE_MARKDOWN,
@@ -650,8 +654,11 @@ def preview(
         unsubscribe_url="#",
         list_name=ln,
         postal_address=addr,
+        attribution=attribution,
     )
-    _, confirm_html, _ = render_confirmation(list_name=ln, confirm_url="#", postal_address=addr)
+    _, confirm_html, _ = render_confirmation(
+        list_name=ln, confirm_url="#", postal_address=addr, attribution=attribution
+    )
     unsub_action = '<form method="post" action="#"><button class="btn btn-danger" type="submit">Unsubscribe</button></form>'
     surfaces = [
         ("email-issue", "Campaign / issue email", _inline_email_marks(issue_html)),
