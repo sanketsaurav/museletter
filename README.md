@@ -126,6 +126,12 @@ museletter campaigns stats cmp_xxx                       # sent/delivered/bounce
 Every command accepts `--json`. The HTTP API is browsable at `/docs` and
 authenticates with `Authorization: Bearer <api key>`.
 
+Campaign reports group delivered, awaiting confirmation, bounced, and complained
+emails under a cumulative `sent` total. Pending, failed, and suppressed emails
+appear separately. All bars and percentages use the total recipient count.
+In `--json` and API responses, `sent` keeps its raw meaning: emails awaiting a
+delivery outcome, excluding those already delivered, bounced, or complained.
+
 ## AWS SES setup (once)
 
 SES is the default provider (`MUSELETTER_EMAIL_PROVIDER=ses`) and has to be
