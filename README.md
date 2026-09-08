@@ -20,7 +20,7 @@ I'm building Museletter to use it on my website [sanketsaurav.com](https://sanke
 - automatic bounce/complaint suppression, fed by SES+SNS webhooks or
   Cloudflare queue events
 - a crash-safe send ledger that respects provider rate limits and resumes mid-blast
-- per-campaign delivery stats
+- per-campaign delivery stats and open tracking
 - `museletter doctor`, which checks DNS, DKIM, DMARC, provider account/quota, config
 
 ## How it works
@@ -29,7 +29,7 @@ Three layers:
 
 1. **The server** (`museletter serve`): a FastAPI app over one SQLite file.
    Its HTTP surface has two audiences. The **public endpoints**
-   (`/subscribe`, `/confirm`, `/unsubscribe`, `/webhooks/sns`) must be
+   (`/subscribe`, `/confirm`, `/unsubscribe`, `/open`, `/webhooks/sns`) must be
    reachable from the internet, because readers click links in their inbox and
    Amazon SNS posts delivery events to the webhook (on Cloudflare, delivery
    events arrive by polling a queue instead: no inbound webhook). The
@@ -120,7 +120,7 @@ museletter campaigns preview cmp_xxx                     # review it (or --html 
 museletter campaigns test cmp_xxx --to you@example.com   # test send to yourself
 museletter campaigns send cmp_xxx --dry-run              # show the audience
 museletter campaigns send cmp_xxx                        # asks to confirm
-museletter campaigns stats cmp_xxx                       # sent/delivered/bounced
+museletter campaigns stats cmp_xxx                       # delivery stats and opens
 ```
 
 Every command accepts `--json`. The HTTP API is browsable at `/docs` and
@@ -128,9 +128,54 @@ authenticates with `Authorization: Bearer <api key>`.
 
 Campaign reports group delivered, awaiting confirmation, bounced, and complained
 emails under a cumulative `sent` total. Pending, failed, and suppressed emails
-appear separately. All bars and percentages use the total recipient count.
+appear separately. Delivery bars and percentages use the total recipient count.
 In `--json` and API responses, `sent` keeps its raw meaning: emails awaiting a
 delivery outcome, excluding those already delivered, bounced, or complained.
+
+### Campaign open tracking
+
+New campaigns track opens by default through a signed, per-recipient 1x1 image
+in the HTML email. This works with both SES and Cloudflare, including custom
+templates. Preview, test, and confirmation emails do not contain tracking pixels;
+plain-text emails cannot report opens. Links are left unchanged.
+
+Use `campaigns stats <id>` or `campaigns show <id>` to see opens. The stats API
+and `--json` output include:
+
+- `track_opens`: whether tracking is enabled for the campaign.
+- `unique_opens`: recipients whose pixel has loaded at least once.
+- `total_opens`: all recorded pixel loads, including repeats.
+- `open_rate`: the percentage of recipients in `sent`, `delivered`, `bounced`,
+  or `complained` state whose pixel has loaded, rounded to two decimal places.
+  Pending, failed, and suppressed recipients are excluded from both sides of
+  this rate. The rate is zero until there are sent recipients.
+
+Opens are estimates of image loads, not proof that a person read the email.
+[Apple Mail Privacy Protection](https://www.apple.com/legal/privacy/data/en/mail-privacy-protection/)
+can preload images without the reader opening a message. Image blocking can
+hide opens, while caching can hide repeat opens. Forwarded messages retain the
+original recipient's pixel. The recipient ledger stores counts and first/last
+open times, without IP addresses or user agents.
+Opens never change delivery status or suppressions.
+
+To disable tracking on a new campaign or an existing draft:
+
+```bash
+museletter campaigns create --subject "Hello" --file issue.md --no-track-opens
+museletter campaigns edit cmp_xxx --no-track-opens
+museletter campaigns edit cmp_xxx --track-opens           # re-enable on a draft
+```
+
+The API accepts `track_opens: false` on campaign create or update. Changing a
+draft clears its test-send flag as usual. Once sending starts, the setting is
+fixed. Upgrading preserves existing data: old drafts enable tracking, while
+campaigns already queued or sent remain untracked. Previously sent emails
+cannot gain tracking retroactively.
+
+Allow public GET requests to `/open/<token>.gif` under `MUSELETTER_BASE_URL`
+through your reverse proxy or tunnel, and disable caching for this route. The
+endpoint requires no admin key and sends cache-prevention headers. HEAD requests
+do not record opens.
 
 ## AWS SES setup (once)
 
@@ -239,8 +284,8 @@ and best-supported path; the platform notes below are thin wrappers around it.
 
 The one hard requirement on every platform: the **public endpoints must be
 reachable from the internet** over HTTPS, and `MUSELETTER_BASE_URL` must be
-that public URL (it goes into every confirm/unsubscribe link and the SNS
-subscription).
+that public URL (it goes into every confirm/unsubscribe link, open-tracking
+pixel, and the SNS subscription).
 
 ### Docker (primary)
 
@@ -350,7 +395,7 @@ Set these in the server's environment (`museletter init` writes most of them).
 | Variable | Required | Meaning |
 |---|---|---|
 | `MUSELETTER_API_KEY` | yes | admin credential (any long random string) |
-| `MUSELETTER_BASE_URL` | yes | public URL used in confirm/unsubscribe links |
+| `MUSELETTER_BASE_URL` | yes | public URL used in confirm/unsubscribe links and open-tracking pixels |
 | `MUSELETTER_FROM_EMAIL` | yes | sender address (on a domain verified with your provider) |
 | `MUSELETTER_FROM_NAME` | no | sender display name |
 | `MUSELETTER_REPLY_TO` | no | Reply-To address on all outgoing email; when unset, replies go to the from address |

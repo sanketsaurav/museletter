@@ -135,6 +135,60 @@ def test_campaigns_create_from_stdin(api):
     assert body == {"subject": "Hi", "body_markdown": "Hello **world**\n", "tag": "vip"}
 
 
+def test_campaigns_open_tracking_options(api):
+    api[("POST", "/v1/lists/default/campaigns")] = {"id": "cmp_1", "subject": "Hi"}
+    result = runner.invoke(
+        cli_app,
+        ["campaigns", "create", "--subject", "Hi", "--file", "-", "--no-track-opens"],
+        input="Body",
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(api["calls"][-1].content)["track_opens"] is False
+    api[("PATCH", "/v1/campaigns/cmp_1")] = {"id": "cmp_1"}
+    for flag, enabled in (("--no-track-opens", False), ("--track-opens", True)):
+        result = runner.invoke(cli_app, ["campaigns", "edit", "cmp_1", flag])
+        assert result.exit_code == 0, result.output
+        assert json.loads(api["calls"][-1].content) == {"track_opens": enabled}
+    result = runner.invoke(cli_app, ["campaigns", "edit", "cmp_1", "--subject", "Updated"])
+    assert result.exit_code == 0
+    assert "track_opens" not in json.loads(api["calls"][-1].content)
+
+
+def test_campaigns_open_stats_in_human_and_json_output(api):
+    data = {
+        "id": "cmp_1",
+        "status": "sending",
+        "recipient_count": 6,
+        "sent": 1,
+        "delivered": 2,
+        "bounced": 1,
+        "pending": 1,
+        "failed": 1,
+        "track_opens": True,
+        "unique_opens": 2,
+        "total_opens": 3,
+        "open_rate": 50.0,
+    }
+    api[("GET", "/v1/campaigns/cmp_1/stats")] = data
+    human = runner.invoke(cli_app, ["campaigns", "stats", "cmp_1"])
+    assert human.exit_code == 0
+    assert "2 unique" in human.output and "3 total" in human.output
+    assert "open rate 50.0% of sent (estimated)" in human.output
+    assert "sent 4 66.7%" in " ".join(human.output.split())
+    assert "awaiting 1 16.7%" in " ".join(human.output.split())
+    as_json = runner.invoke(cli_app, ["--json", "campaigns", "stats", "cmp_1"])
+    assert json.loads(as_json.output) == data
+    api[("GET", "/v1/campaigns/cmp_1")] = {**data, "subject": "Hi", "stats": data}
+    detail = runner.invoke(cli_app, ["campaigns", "show", "cmp_1"])
+    assert "2 unique" in detail.output and "open tracking: on" in detail.output
+    assert "sent 4 66.7%" in " ".join(detail.output.split())
+    assert "open rate 50.0% of sent (estimated)" in detail.output
+    data["track_opens"] = False
+    disabled = runner.invoke(cli_app, ["campaigns", "stats", "cmp_1"])
+    assert "open tracking: off" in disabled.output
+    assert "open rate" not in disabled.output
+
+
 def _send_route(sent: list):
     def route(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -641,7 +695,7 @@ def test_campaign_report_preserves_bars_with_cumulative_sent(api, command):
         assert len(bar) == 22
         bar_columns.add(line.index(bar))
     assert len(bar_columns) == 1
-    assert "All bars and percentages are of recipients." in result.output
+    assert "Delivery bars and percentages are of recipients." in result.output
     assert "awaiting = sent, awaiting delivery confirmation" in result.output
     as_json = runner.invoke(cli_app, ["--json", "campaigns", command, "cmp_1"])
     assert json.loads(as_json.output) == payload

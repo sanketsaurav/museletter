@@ -17,7 +17,7 @@ from .db import BUILTIN_TEMPLATE_ID, utcnow
 from .events import record_event, suppress
 from .mailer import SendError
 from .render import personalize_email, render_campaign, validate_template
-from .tokens import make_token
+from .tokens import make_open_token, make_token
 
 logger = logging.getLogger("museletter.sender")
 
@@ -109,6 +109,10 @@ class SenderLoop:
                 continue
 
             unsubscribe_url = f"{settings.base_url}/unsubscribe/{make_token(secret, 'unsubscribe', recipient['subscriber_id'])}"
+            open_tracking_url = ""
+            if campaign["track_opens"]:
+                token = make_open_token(secret, campaign["id"], recipient["subscriber_id"])
+                open_tracking_url = f"{settings.base_url}/open/{token}.gif"
             subject, html, text = personalize_email(
                 body,
                 name=recipient["name"],
@@ -118,6 +122,7 @@ class SenderLoop:
                 postal_address=settings.postal_address,
                 template=template,
                 attribution=settings.attribution,
+                open_tracking_url=open_tracking_url,
             )
             headers = {
                 "List-Unsubscribe": f"<{unsubscribe_url}>",
