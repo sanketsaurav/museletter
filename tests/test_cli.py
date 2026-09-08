@@ -16,7 +16,7 @@ runner = CliRunner()
 def isolate_config(monkeypatch, tmp_path):
     """Point client config at a temp file and clear env overrides for every test."""
     monkeypatch.setattr(clientconf, "CONFIG_PATH", tmp_path / "config.toml")
-    for var in ("MUSELETTER_URL", "MUSELETTER_API_KEY", "MUSELETTER_PROFILE"):
+    for var in ("MUSELETTER_URL", "MUSELETTER_API_KEY", "MUSELETTER_PROFILE", "MUSELETTER_LIST"):
         monkeypatch.delenv(var, raising=False)
     # Default: a saved profile so command tests resolve a server.
     clientconf.save_profile("default", "http://t.local", "testkey")
@@ -250,12 +250,12 @@ def test_serve_refuses_missing_config(monkeypatch):
 
 
 def _mock_server(monkeypatch, handler):
-    """Force the connect/status ad-hoc httpx clients onto a MockTransport."""
+    """Route CLI HTTP clients through a MockTransport, preserving their configuration."""
     transport = httpx.MockTransport(handler)
     real = httpx.Client  # capture before patching to avoid recursing into the factory
 
-    def factory(*, base_url="", **_):
-        return real(base_url=base_url, transport=transport)
+    def factory(**kwargs):
+        return real(transport=transport, **kwargs)
 
     monkeypatch.setattr(cli_mod.httpx, "Client", factory)
 
@@ -305,6 +305,45 @@ def test_status_reports_reachable_and_authed(monkeypatch):
     data = json.loads(result.output)
     assert data["reachable"] and data["authenticated"]
     assert data["active_subscribers"] == 8
+
+
+@pytest.mark.parametrize("flag", ["-p", "--profile"])
+def test_status_explicit_profile_overrides_env(monkeypatch, flag):
+    clientconf.save_profile("second", "https://second.example.com", "secondkey", make_default=False)
+    monkeypatch.setenv("MUSELETTER_URL", "https://first.example.com")
+    monkeypatch.setenv("MUSELETTER_API_KEY", "firstkey")
+
+    def handler(request):
+        assert request.url.host == "second.example.com"
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"ok": True})
+        assert request.headers["Authorization"] == "Bearer secondkey"
+        return httpx.Response(200, json={"lists": []})
+
+    _mock_server(monkeypatch, handler)
+    result = runner.invoke(cli_app, [flag, "second", "--json", "status"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["url"] == "https://second.example.com"
+    assert data["source"] == "profile:second"
+    assert data["reachable"] and data["authenticated"]
+
+
+@pytest.mark.parametrize("command", [["status"], ["subs", "list"]])
+def test_unknown_explicit_profile_does_not_contact_env_server(monkeypatch, command):
+    monkeypatch.setenv("MUSELETTER_URL", "https://first.example.com")
+    monkeypatch.setenv("MUSELETTER_API_KEY", "firstkey")
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={})
+
+    _mock_server(monkeypatch, handler)
+    result = runner.invoke(cli_app, ["-p", "missing", *command])
+    assert result.exit_code == 1
+    assert "unknown profile 'missing'" in result.output
+    assert not calls
 
 
 def test_print_token_roundtrips(monkeypatch):
@@ -621,6 +660,43 @@ def test_active_list_is_the_default_target(api):
     api[("GET", "/v1/lists/other/subscribers")] = {"subscribers": [], "total": 0, "limit": 100, "offset": 0}
     runner.invoke(cli_app, ["subs", "list", "--list", "other"])
     assert api["calls"][-1].url.path == "/v1/lists/other/subscribers"
+
+
+@pytest.mark.parametrize(
+    ("profile", "env_list", "explicit_list", "expected_list"),
+    [
+        (None, None, None, "default"),
+        ("second", None, None, "field-notes"),
+        ("second", "env-list", None, "env-list"),
+        ("second", "env-list", "other", "other"),
+    ],
+)
+def test_list_selection_with_env_server(monkeypatch, profile, env_list, explicit_list, expected_list):
+    clientconf.set_active_list("first-list")
+    clientconf.save_profile("second", "https://second.example.com", "secondkey", make_default=False)
+    clientconf.set_active_list("field-notes", "second")
+    monkeypatch.setenv("MUSELETTER_URL", "https://first.example.com")
+    monkeypatch.setenv("MUSELETTER_API_KEY", "firstkey")
+    if env_list:
+        monkeypatch.setenv("MUSELETTER_LIST", env_list)
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"subscribers": [], "total": 0})
+
+    _mock_server(monkeypatch, handler)
+    args = ["-p", profile] if profile else []
+    args += ["subs", "list"]
+    if explicit_list:
+        args += ["--list", explicit_list]
+    result = runner.invoke(cli_app, args)
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    server = "second" if profile else "first"
+    assert calls[0].url.host == f"{server}.example.com"
+    assert calls[0].url.path == f"/v1/lists/{expected_list}/subscribers"
+    assert calls[0].headers["Authorization"] == f"Bearer {server}key"
 
 
 def test_profiles_list_use_rm():
