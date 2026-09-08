@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.3.0 - 2026-09-08
+
+### Features
+
+- **The "Sent with Museletter" footer line is now optional.** Every email
+  footer ended with a small attribution line that neither a custom template
+  nor any setting could remove. Set `MUSELETTER_ATTRIBUTION=false` on the
+  server to drop it from both the HTML and plain-text footers on every render
+  path: campaign sends, campaign and template test sends, campaign previews,
+  and the double opt-in confirmation email. The default is `true`, so existing
+  installs are unchanged (`0` and `no` also turn it off). The unsubscribe link
+  and postal address are untouched, and templates still cannot strip the line
+  themselves; it stays an operator decision. `museletter preview` reads the
+  flag from the environment, so a local preview matches what the server sends.
+
+### Upgrade notes
+
+- Nothing to do: no schema changes and no new required config. The new
+  `MUSELETTER_ATTRIBUTION` setting is optional and defaults to the previous
+  behavior.
+
 ## v1.2.0 - 2026-08-26
 
 ### Features
