@@ -44,7 +44,12 @@ def _version_callback(value: bool) -> None:
 @app.callback()
 def _global(
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON responses"),
-    profile: str = typer.Option(None, "--profile", "-p", help="Server profile to use"),
+    profile: str = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Server profile to use (overrides MUSELETTER_URL and MUSELETTER_API_KEY)",
+    ),
     version: bool = typer.Option(
         False, "--version", callback=_version_callback, is_eager=True, help="Show the version and exit"
     ),
@@ -75,7 +80,8 @@ def _list_ref(explicit: str | None) -> str:
         return explicit
     if os.environ.get("MUSELETTER_LIST"):
         return os.environ["MUSELETTER_LIST"]
-    if os.environ.get("MUSELETTER_URL"):  # env-configured server has no saved profile
+    _, _, source = _resolve()
+    if source == "env":  # env-configured server has no saved profile
         return "default"
     return clientconf.active_list(STATE["profile"]) or "default"
 

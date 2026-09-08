@@ -39,15 +39,31 @@ def test_multiple_profiles_and_selection():
     assert clientconf.resolve("client")[0] == "https://c.example.com"
 
 
-def test_env_overrides_profiles(monkeypatch):
+@pytest.mark.parametrize("profile_env", ["", "work"])
+def test_env_overrides_implicit_profiles(monkeypatch, profile_env):
     clientconf.save_profile("default", "https://saved.example.com", "k1")
+    clientconf.save_profile("work", "https://work.example.com", "kw", make_default=False)
+    monkeypatch.setenv("MUSELETTER_PROFILE", profile_env)
     monkeypatch.setenv("MUSELETTER_URL", "https://env.example.com")
     monkeypatch.setenv("MUSELETTER_API_KEY", "envkey")
     url, key, source = clientconf.resolve()
     assert (url, key, source) == ("https://env.example.com", "envkey", "env")
 
 
+@pytest.mark.parametrize("env_url", ["", "https://env.example.com"])
+@pytest.mark.parametrize("profile_key", ["workkey", ""])
+def test_explicit_profile_overrides_env(monkeypatch, env_url, profile_key):
+    clientconf.save_profile("default", "https://saved.example.com", "k1")
+    clientconf.save_profile("work", "https://work.example.com", profile_key, make_default=False)
+    monkeypatch.setenv("MUSELETTER_URL", env_url)
+    monkeypatch.setenv("MUSELETTER_API_KEY", "envkey")
+    monkeypatch.setenv("MUSELETTER_PROFILE", "default")
+
+    assert clientconf.resolve("work") == ("https://work.example.com", profile_key, "profile:work")
+
+
 def test_profile_env_selects_profile(monkeypatch):
+    clientconf.save_profile("default", "https://saved.example.com", "k1")
     clientconf.save_profile("work", "https://work.example.com", "kw", make_default=False)
     monkeypatch.setenv("MUSELETTER_PROFILE", "work")
     assert clientconf.resolve()[0] == "https://work.example.com"
@@ -58,8 +74,11 @@ def test_resolve_errors_when_unconfigured():
         clientconf.resolve()
 
 
-def test_unknown_profile_errors():
+@pytest.mark.parametrize("env_url", ["", "https://env.example.com"])
+def test_unknown_profile_errors(monkeypatch, env_url):
     clientconf.save_profile("default", "https://a.example.com", "k1")
+    monkeypatch.setenv("MUSELETTER_URL", env_url)
+    monkeypatch.setenv("MUSELETTER_API_KEY", "envkey")
     with pytest.raises(clientconf.ConfigError, match="unknown profile"):
         clientconf.resolve("nope")
 

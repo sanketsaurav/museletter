@@ -25,6 +25,10 @@ Confirm with `museletter status`. Every command accepts `--json` for
 machine-readable output. The raw API is documented at `$MUSELETTER_URL/docs`;
 auth is `Authorization: Bearer <api key>`.
 
+To select a saved server, put `-p <name>` (or `--profile <name>`) before the
+command, for example `museletter -p work status`. This uses the profile's saved
+URL and API key even when `MUSELETTER_URL` and `MUSELETTER_API_KEY` are set.
+
 ## Safety rules (non-negotiable)
 
 1. **Never send without a dry run first.** `museletter campaigns send <id> --dry-run`

@@ -103,11 +103,11 @@ def save_profile(name: str, url: str, api_key: str, *, make_default: bool = True
 def resolve(profile: str | None = None) -> tuple[str, str, str]:
     """Resolve (url, api_key, source) for the active server.
 
-    Precedence: explicit env (MUSELETTER_URL/_API_KEY) > requested profile >
+    Precedence: requested profile > explicit env (MUSELETTER_URL/_API_KEY) >
     MUSELETTER_PROFILE > the config's default profile.
     """
     env_url = os.environ.get("MUSELETTER_URL")
-    if env_url:
+    if env_url and not profile:
         return env_url.rstrip("/"), os.environ.get("MUSELETTER_API_KEY", ""), "env"
 
     config = load_config()

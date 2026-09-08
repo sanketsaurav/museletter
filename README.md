@@ -107,7 +107,9 @@ museletter status                # server version, reachability, subscriber coun
 ```
 
 `connect` saves a named profile in `~/.config/museletter/config.toml`. Manage
-several servers with `--name` on connect and `--profile` on any command.
+several servers with `--name` on connect and `--profile` (`-p`) before the
+command, for example `museletter -p second status`. An explicit profile takes
+precedence over the server URL and API key in your environment.
 
 ### 3. Send your first issue
 
@@ -364,9 +366,19 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_CLOUDFLARE_EVENTS_QUEUE_ID` | recommended (cloudflare) | queue holding the Email Sending event subscription; feeds bounce/complaint suppression |
 | `MUSELETTER_CLOUDFLARE_POLL_SECONDS` | no | cloudflare: seconds between event queue polls, default 30 |
 
-The client CLI reads its server from `~/.config/museletter/config.toml`
-(written by `museletter connect`), or from `MUSELETTER_URL` +
-`MUSELETTER_API_KEY` when set.
+The client CLI selects its server in this order:
+
+1. An explicit `--profile <name>` (`-p <name>`).
+2. `MUSELETTER_URL` with `MUSELETTER_API_KEY` from the environment.
+3. The profile named by `MUSELETTER_PROFILE`.
+4. The default profile in `~/.config/museletter/config.toml` (written by
+   `museletter connect` or selected with `museletter profiles use`).
+
+An explicit profile uses its saved URL and API key together, even when server
+environment variables are set. An unknown explicit profile is an error.
+List selection uses `--list`, then `MUSELETTER_LIST`, then the selected
+profile's pinned list (`museletter lists use`), then `default`. A server
+selected through `MUSELETTER_URL` has no pinned list.
 
 ## Connect your website
 
