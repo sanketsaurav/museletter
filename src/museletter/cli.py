@@ -179,7 +179,7 @@ _SENT_STATUSES = ("delivered", "sent", "bounced", "complained")
 _UNSENT_STATUSES = ("pending", "failed", "suppressed")
 _RECIPIENT_STATUSES = _SENT_STATUSES + _UNSENT_STATUSES
 _DELIVERY_NOTE = (
-    "  All bars and percentages are of recipients.\n  awaiting = sent, awaiting delivery confirmation"
+    "  Delivery bars and percentages are of recipients.\n  awaiting = sent, awaiting delivery confirmation"
 )
 
 
@@ -216,6 +216,17 @@ def _campaign_breakdown(counts: dict, total: int) -> str:
     return "\n".join(lines)
 
 
+def _render_opens(data: dict, stats: dict) -> str:
+    if data.get("track_opens") is False:
+        return "  open tracking: off"
+    if "unique_opens" not in stats:
+        return ""
+    return (
+        f"  opens: {stats['unique_opens']:,} unique  ·  {stats['total_opens']:,} total"
+        f"  ·  open rate {stats['open_rate']:.1f}% of sent (estimated)"
+    )
+
+
 def _render_campaign_stats(data: dict) -> str:
     total = data.get("recipient_count") or sum(data.get(s, 0) for s in _RECIPIENT_STATUSES)
     header = (
@@ -245,6 +256,8 @@ def _render_campaign_stats(data: dict) -> str:
         + typer.style("   complaint ", dim=True)
         + typer.style(_campaign_percent(data.get("complained", 0), total), fg="magenta")
     )
+    if opens := _render_opens(data, data):
+        parts.append(opens)
     parts += ["", typer.style(_DELIVERY_NOTE, dim=True)]
     return "\n".join(parts)
 
@@ -259,12 +272,17 @@ def _render_campaign_detail(data: dict) -> str:
     meta = [f"recipients: {data.get('recipient_count', 0):,}"]
     if data.get("tag"):
         meta.append(f"tag: {data['tag']}")
+    if "track_opens" in data:
+        meta.append(f"open tracking: {'on' if data['track_opens'] else 'off'}")
     meta.append(f"created {_short_ts(data.get('created_at'))}")
     parts.append(typer.style("  " + "  ·  ".join(meta), dim=True))
     stats = data.get("stats")
     if stats:
         total = data.get("recipient_count") or sum(stats.get(s, 0) for s in _RECIPIENT_STATUSES)
-        parts += ["", _campaign_breakdown(stats, total), "", typer.style(_DELIVERY_NOTE, dim=True)]
+        parts += ["", _campaign_breakdown(stats, total)]
+        if opens := _render_opens(data, stats):
+            parts.append(opens)
+        parts += ["", typer.style(_DELIVERY_NOTE, dim=True)]
     return "\n".join(parts)
 
 
@@ -1035,6 +1053,9 @@ def campaigns_create(
     template: str = typer.Option(
         None, "--template", help="email template for this campaign (default: the list's template)"
     ),
+    track_opens: bool = typer.Option(
+        True, "--track-opens/--no-track-opens", help="track opens with a per-recipient image"
+    ),
 ):
     list_ref = _list_ref(list_ref)
     markdown = sys.stdin.read() if str(file) == "-" else file.read_text()
@@ -1043,6 +1064,8 @@ def campaigns_create(
         body["tag"] = tag
     if template:
         body["template"] = _template_body_value(template)
+    if not track_opens:
+        body["track_opens"] = False
     data = _call("POST", f"/v1/lists/{list_ref}/campaigns", body)
     _emit(data, f'created draft {data["id"]}: "{data["subject"]}"')
 
@@ -1063,6 +1086,9 @@ def campaigns_edit(
     template: str = typer.Option(
         None, "--template", help="email template for this campaign ('none' to use the list's template)"
     ),
+    track_opens: bool | None = typer.Option(
+        None, "--track-opens/--no-track-opens", help="enable or disable open tracking"
+    ),
 ):
     body = {}
     if subject is not None:
@@ -1073,6 +1099,8 @@ def campaigns_edit(
         body["tag"] = tag
     if template is not None:
         body["template"] = _template_body_value(template)
+    if track_opens is not None:
+        body["track_opens"] = track_opens
     if not body:
         typer.echo("nothing to update", err=True)
         raise typer.Exit(1)

@@ -171,6 +171,7 @@ def personalize_email(
     postal_address: str = "",
     template: Template | None = None,
     attribution: bool = True,
+    open_tracking_url: str = "",
 ) -> tuple[str, str, str]:
     """Personalize a pre-rendered campaign for one recipient. Returns (subject, html, text).
     A custom template (validated with validate_template) replaces the built-in shell."""
@@ -184,6 +185,14 @@ def personalize_email(
         content=content_html,
         footer=_footer_html(list_name, postal_address, unsubscribe_url, attribution),
     )
+    if open_tracking_url:
+        pixel = (
+            f'<img src="{html_mod.escape(open_tracking_url, quote=True)}" width="1" height="1" '
+            'alt="" style="display:block;width:1px;height:1px;border:0;" />'
+        )
+        html, inserted = re.subn(r"</body\s*>", lambda m: pixel + m.group(), html, count=1, flags=re.I)
+        if not inserted:
+            html += pixel
     footer_text = "\n".join(_footer_text(list_name, postal_address, unsubscribe_url, attribution))
     text = content_text + "\n\n" + footer_text + "\n"
     return subject, html, text

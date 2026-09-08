@@ -132,6 +132,7 @@ def campaign_json(row: aiosqlite.Row, tag_name: str | None = None, template: str
         "body_markdown": row["body_markdown"],
         "tag": tag_name,
         "template": template,
+        "track_opens": bool(row["track_opens"]),
         "status": row["status"],
         "recipient_count": row["recipient_count"],
         "test_sent_at": row["test_sent_at"],
@@ -143,11 +144,20 @@ def campaign_json(row: aiosqlite.Row, tag_name: str | None = None, template: str
 
 async def campaign_stats(db: aiosqlite.Connection, campaign_id: str) -> dict:
     async with db.execute(
-        "SELECT status, COUNT(*) AS n FROM campaign_recipients WHERE campaign_id = ? GROUP BY status",
+        "SELECT status, COUNT(*) AS n, COUNT(first_opened_at) AS opened, SUM(open_count) AS opens "
+        "FROM campaign_recipients WHERE campaign_id = ? GROUP BY status",
         (campaign_id,),
     ) as cur:
-        counts = {r["status"]: r["n"] for r in await cur.fetchall()}
+        rows = await cur.fetchall()
+    counts = {r["status"]: r["n"] for r in rows}
+    sent = [r for r in rows if r["status"] in ("sent", "delivered", "bounced", "complained")]
+    sent_count = sum(r["n"] for r in sent)
     return {
-        status: counts.get(status, 0)
-        for status in ("pending", "sent", "delivered", "bounced", "complained", "failed", "suppressed")
+        **{
+            status: counts.get(status, 0)
+            for status in ("pending", "sent", "delivered", "bounced", "complained", "failed", "suppressed")
+        },
+        "unique_opens": sum(r["opened"] for r in rows),
+        "total_opens": sum(r["opens"] for r in rows),
+        "open_rate": round(sum(r["opened"] for r in sent) / sent_count * 100, 2) if sent_count else 0.0,
     }

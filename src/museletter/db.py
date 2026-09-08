@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     body_markdown TEXT NOT NULL,
     tag_id TEXT REFERENCES tags(id) ON DELETE SET NULL,
     template_id TEXT,
+    track_opens INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'draft',
     recipient_count INTEGER NOT NULL DEFAULT 0,
     test_sent_at TEXT,
@@ -86,6 +87,9 @@ CREATE TABLE IF NOT EXISTS campaign_recipients (
     ses_message_id TEXT,
     error TEXT,
     updated_at TEXT NOT NULL,
+    open_count INTEGER NOT NULL DEFAULT 0,
+    first_opened_at TEXT,
+    last_opened_at TEXT,
     PRIMARY KEY (campaign_id, subscriber_id)
 );
 CREATE INDEX IF NOT EXISTS idx_recipients_status ON campaign_recipients(campaign_id, status);
@@ -152,6 +156,21 @@ async def _migrate(db: aiosqlite.Connection) -> None:
             columns = {row["name"] for row in await cur.fetchall()}
         if "template_id" not in columns:
             await db.execute(f"ALTER TABLE {table} ADD COLUMN template_id TEXT")
+    async with db.execute("PRAGMA table_info(campaigns)") as cur:
+        columns = {row["name"] for row in await cur.fetchall()}
+    if "track_opens" not in columns:
+        await db.execute("ALTER TABLE campaigns ADD COLUMN track_opens INTEGER NOT NULL DEFAULT 1")
+        # Already queued or sent messages have no pixel; do not imply otherwise.
+        await db.execute("UPDATE campaigns SET track_opens = 0 WHERE status != 'draft'")
+    async with db.execute("PRAGMA table_info(campaign_recipients)") as cur:
+        columns = {row["name"] for row in await cur.fetchall()}
+    for column, definition in (
+        ("open_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("first_opened_at", "TEXT"),
+        ("last_opened_at", "TEXT"),
+    ):
+        if column not in columns:
+            await db.execute(f"ALTER TABLE campaign_recipients ADD COLUMN {column} {definition}")
 
 
 async def get_meta(db: aiosqlite.Connection, key: str) -> str | None:

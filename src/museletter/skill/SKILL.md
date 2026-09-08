@@ -58,6 +58,14 @@ Campaign bodies are Markdown. Personalization tokens: `{{name}}`,
 `{{first_name|there}}`. An unsubscribe footer is added automatically - never add
 your own unsubscribe link.
 
+Campaigns track opens by default. Pass `--no-track-opens` on `campaigns create`
+or `campaigns edit` to disable it for a draft; `--track-opens` re-enables it.
+Preview and test sends are untracked. `campaigns stats` reports `unique_opens`,
+`total_opens`, and `open_rate` (a percentage among sent/delivered/bounced/complained
+recipients). Treat opens as estimates: mail privacy features can preload images,
+and image blocking or caching can hide opens. Opens are separate from delivery
+status. Keep `/open/*` publicly reachable and uncached under the server's base URL.
+
 Audience targeting: `--list <slug>` picks the list (default list slug: `default`);
 `--tag <tag>` restricts to tagged subscribers.
 

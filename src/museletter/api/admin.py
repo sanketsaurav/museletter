@@ -63,6 +63,7 @@ class CampaignIn(BaseModel):
     body_markdown: str
     tag: str | None = None
     template: str | None = None
+    track_opens: bool = True
 
 
 class CampaignPatch(BaseModel):
@@ -70,6 +71,7 @@ class CampaignPatch(BaseModel):
     body_markdown: str | None = None
     tag: str | None = None
     template: str | None = None
+    track_opens: bool | None = None
 
 
 class TemplateIn(BaseModel):
@@ -745,9 +747,18 @@ async def create_campaign(request: Request, ref: str, body: CampaignIn):
     )
     campaign_id = new_id("cmp")
     await db.execute(
-        "INSERT INTO campaigns (id, list_id, subject, body_markdown, tag_id, template_id, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (campaign_id, lst["id"], body.subject.strip(), body.body_markdown, tag_id, template_id, utcnow()),
+        "INSERT INTO campaigns (id, list_id, subject, body_markdown, tag_id, template_id, track_opens, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            campaign_id,
+            lst["id"],
+            body.subject.strip(),
+            body.body_markdown,
+            tag_id,
+            template_id,
+            body.track_opens,
+            utcnow(),
+        ),
     )
     await db.commit()
     return await _campaign_json(db, await get_campaign(db, campaign_id))
@@ -795,10 +806,11 @@ async def update_campaign(request: Request, campaign_id: str, body: CampaignPatc
         if body.template is not None
         else row["template_id"]
     )
+    track_opens = body.track_opens if body.track_opens is not None else row["track_opens"]
     await db.execute(
-        "UPDATE campaigns SET subject = ?, body_markdown = ?, tag_id = ?, template_id = ?, "
+        "UPDATE campaigns SET subject = ?, body_markdown = ?, tag_id = ?, template_id = ?, track_opens = ?, "
         "test_sent_at = NULL WHERE id = ?",
-        (subject, markdown, tag_id, template_id, campaign_id),
+        (subject, markdown, tag_id, template_id, track_opens, campaign_id),
     )
     await db.commit()
     return await _campaign_json(db, await get_campaign(db, campaign_id))
@@ -946,6 +958,7 @@ async def get_campaign_stats(request: Request, campaign_id: str):
         "recipient_count": row["recipient_count"],
         "started_at": row["started_at"],
         "completed_at": row["completed_at"],
+        "track_opens": bool(row["track_opens"]),
         **await campaign_stats(db, campaign_id),
     }
 

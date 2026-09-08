@@ -5,16 +5,45 @@ from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ..db import new_id, utcnow
 from ..events import apply_events
 from ..render import load_template, render_confirmation
 from ..sns import is_amazon_sns_url, parse_ses_events
-from ..tokens import make_token, verify_token
+from ..tokens import make_token, verify_open_token, verify_token
 from .common import normalize_email, valid_email
 
 router = APIRouter()
+
+_OPEN_PIXEL = bytes.fromhex(
+    "47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b"
+)
+
+
+@router.api_route("/open/{token}.gif", methods=["GET", "HEAD"])
+async def track_open(request: Request, token: str):
+    recipient = verify_open_token(request.app.state.secret, token)
+    if request.method == "GET" and recipient is not None:
+        db = request.app.state.db
+        now = utcnow()
+        # A client can load the pixel while the provider call is still pending.
+        # Only attempted recipients qualify; opens never change delivery state.
+        await db.execute(
+            "UPDATE campaign_recipients SET open_count = open_count + 1, "
+            "first_opened_at = COALESCE(first_opened_at, ?), last_opened_at = ? "
+            "WHERE campaign_id = ? AND subscriber_id = ? AND attempts > 0 "
+            "AND EXISTS (SELECT 1 FROM campaigns WHERE id = campaign_id "
+            "AND track_opens = 1 AND status != 'draft')",
+            (now, now, *recipient),
+        )
+        await db.commit()
+    # Invalid and deleted tokens get the same image, with no recipient details.
+    return Response(
+        content=_OPEN_PIXEL,
+        media_type="image/gif",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache"},
+    )
 
 
 class RateLimiter:

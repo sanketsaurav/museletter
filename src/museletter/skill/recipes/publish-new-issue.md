@@ -16,3 +16,6 @@ Goal: the user published a post and wants subscribers notified.
 4. Dry-run, report the audience count, get explicit approval, then send with `--yes`.
 5. Poll `campaigns stats <id>` until `pending` is 0 and report: sent, delivered,
    bounced, complained. Flag anything unusual (bounce rate over ~2%, any complaints).
+   Include unique opens, total opens, and the estimated open rate when tracking
+   is enabled. Opens can arrive later; no opens at send completion is normal.
+   Mail privacy features and image blocking affect these estimates.
