@@ -103,7 +103,7 @@ pip install museletter
 museletter connect ml_...        # paste the token; verifies reachability + auth
 museletter skill install         # drop the agent skill into ~/.claude/skills
 museletter doctor                # confirm provider, DNS, and config are healthy
-museletter status                # server, reachability, subscriber counts
+museletter status                # server version, reachability, subscriber counts
 ```
 
 `connect` saves a named profile in `~/.config/museletter/config.toml`. Manage
@@ -332,8 +332,8 @@ The **server**:
 - **pip or a service install:** `pip install -U museletter`, then
   `museletter service restart` (launchd/systemd) or restart your process.
 
-Check versions with `museletter --version` (the CLI) and `museletter health`
-(the running server reports its version at `/health`).
+Check versions with `museletter --version` (the CLI) and `museletter status`
+(the running server). `museletter health` also reports the server version.
 
 ## Configuration
 
@@ -545,7 +545,7 @@ museletter service <cmd>         install|restart|uninstall|status (launchd/syste
 
 museletter connect <token|--url> point the CLI at a server, save a profile
 museletter profiles <cmd>        list|use|rm (switch between servers)
-museletter status                server, reachability, auth, per-list counts
+museletter status                server version, reachability, auth, per-list counts
 museletter doctor                DNS/DKIM/DMARC/provider/config health checks
 museletter health                liveness of the configured server
 museletter docs                  print this README (offline, agent-readable)
@@ -560,7 +560,9 @@ museletter templates <cmd>       list|create|show|edit|test|rm
 museletter suppressions <cmd>    list|add|rm
 ```
 
-Run any command with `--help` for its flags, or `--json` for machine output.
+Run `museletter help` (or `museletter --help`) to see commands grouped into
+client and server commands. Run any command with `--help` for its flags, or
+`--json` for machine output.
 
 ## Multiple newsletters
 

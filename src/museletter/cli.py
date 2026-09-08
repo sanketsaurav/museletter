@@ -20,15 +20,15 @@ suppressions_app = typer.Typer(help="Manage the suppression list", no_args_is_he
 skill_app = typer.Typer(help="Install the museletter agent skill", no_args_is_help=True)
 service_app = typer.Typer(help="Run Museletter as a background service", no_args_is_help=True)
 profiles_app = typer.Typer(help="Manage saved server profiles", no_args_is_help=True)
-app.add_typer(lists_app, name="lists")
-app.add_typer(subs_app, name="subs")
-app.add_typer(tags_app, name="tags")
-app.add_typer(campaigns_app, name="campaigns")
-app.add_typer(templates_app, name="templates")
-app.add_typer(suppressions_app, name="suppressions")
-app.add_typer(skill_app, name="skill")
-app.add_typer(service_app, name="service")
-app.add_typer(profiles_app, name="profiles")
+app.add_typer(lists_app, name="lists", rich_help_panel="Client commands")
+app.add_typer(subs_app, name="subs", rich_help_panel="Client commands")
+app.add_typer(tags_app, name="tags", rich_help_panel="Client commands")
+app.add_typer(campaigns_app, name="campaigns", rich_help_panel="Client commands")
+app.add_typer(templates_app, name="templates", rich_help_panel="Client commands")
+app.add_typer(suppressions_app, name="suppressions", rich_help_panel="Client commands")
+app.add_typer(skill_app, name="skill", rich_help_panel="Client commands")
+app.add_typer(service_app, name="service", rich_help_panel="Server commands")
+app.add_typer(profiles_app, name="profiles", rich_help_panel="Client commands")
 
 STATE: dict = {"json": False, "profile": None}
 
@@ -51,6 +51,13 @@ def _global(
 ):
     STATE["json"] = json_output
     STATE["profile"] = profile
+
+
+@app.command("help", rich_help_panel="Client commands")
+def show_help(ctx: typer.Context):
+    """Show commands and options."""
+    if ctx.parent is not None:
+        typer.echo(ctx.parent.get_help())
 
 
 def _resolve():
@@ -276,7 +283,7 @@ def _load_env_file(path: Path) -> None:
             os.environ.setdefault(key, val)
 
 
-@app.command()
+@app.command(rich_help_panel="Client commands")
 def connect(
     token: str = typer.Argument(None, help="connect token (ml_...) from `museletter print-token`"),
     url: str = typer.Option(None, help="server URL (instead of a token)"),
@@ -361,7 +368,7 @@ def profiles_rm(name: str):
     typer.echo(f"removed profile '{name}'")
 
 
-@app.command("print-token")
+@app.command("print-token", rich_help_panel="Server commands")
 def print_token():
     """Print a connect token for this server's configured URL + API key (run on the server)."""
     from .config import Settings
@@ -376,20 +383,27 @@ def print_token():
     typer.echo(clientconf.encode_token(settings.base_url, settings.api_key))
 
 
-@app.command()
+@app.command(rich_help_panel="Client commands")
 def status():
-    """Show which server this machine is pointed at and whether it's reachable."""
+    """Show the configured server, its version, and connection status."""
     try:
         url, api_key, source = clientconf.resolve(STATE["profile"])
     except clientconf.ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    info: dict = {"url": url, "source": source, "reachable": False, "authenticated": False}
+    info: dict = {"url": url, "source": source, "version": None, "reachable": False, "authenticated": False}
     try:
         with httpx.Client(base_url=url, timeout=15) as client:
-            info["reachable"] = client.get("/health").status_code == 200
+            health = client.get("/health")
+            info["reachable"] = health.status_code == 200
             if info["reachable"]:
+                try:
+                    health_data = health.json()
+                except ValueError:
+                    health_data = {}
+                if isinstance(health_data, dict):
+                    info["version"] = health_data.get("version")
                 lists = client.get("/v1/lists", headers={"Authorization": f"Bearer {api_key}"})
                 info["authenticated"] = lists.status_code == 200
                 if info["authenticated"]:
@@ -409,6 +423,7 @@ def status():
         yn = lambda ok: typer.style("yes", fg="green") if ok else typer.style("no", fg="red")  # noqa: E731
         active = clientconf.active_list(STATE["profile"]) if source.startswith("profile:") else None
         typer.echo(f"server:        {info['url']}  " + typer.style(f"({source})", dim=True))
+        typer.echo("version:       " + (info["version"] or "unknown"))
         typer.echo(f"reachable:     {yn(info['reachable'])}")
         typer.echo(f"authenticated: {yn(info['authenticated'])}")
         typer.echo("active list:   " + (active or typer.style("default", dim=True)))
@@ -420,7 +435,7 @@ def status():
     raise typer.Exit(0 if info["authenticated"] else 1)
 
 
-@app.command()
+@app.command(rich_help_panel="Server commands")
 def serve(
     host: str = typer.Option("127.0.0.1", help="bind address"),
     port: int = typer.Option(8000, help="bind port"),
@@ -447,7 +462,7 @@ def serve(
     uvicorn.run(create_app(settings), host=host, port=port, log_level="info")
 
 
-@app.command()
+@app.command(rich_help_panel="Client commands")
 def doctor():
     """Check DNS, email provider account status, and configuration."""
     data = _call("GET", "/v1/doctor")
@@ -466,7 +481,7 @@ def doctor():
     raise typer.Exit(0 if data["status"] != "fail" else 1)
 
 
-@app.command()
+@app.command(rich_help_panel="Client commands")
 def health():
     """Check that the server is up."""
     data = _call("GET", "/health")
@@ -486,7 +501,7 @@ def _read_readme() -> str:
     return "README not found; see https://github.com/sanketsaurav/museletter"
 
 
-@app.command()
+@app.command(rich_help_panel="Client commands")
 def docs():
     """Print the full Museletter manual (the README), for humans and agents alike."""
     text = _read_readme()
@@ -612,7 +627,7 @@ def _inline_email_marks(html: str) -> str:
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Server commands")
 def preview(
     out: str = typer.Option(None, "--out", help="directory to write previews to (default: a temp dir)"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="open the previews in a browser"),
@@ -1239,7 +1254,7 @@ def skill_install(
 # ---------- init ----------
 
 
-@app.command()
+@app.command(rich_help_panel="Server commands")
 def init(
     base_url: str = typer.Option(None, "--base-url", help="public URL of the server"),
     from_email: str = typer.Option(None, "--from-email", help="sender address"),
