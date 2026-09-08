@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.4.0 - 2026-09-08
+
+### Features
+
+- **Campaign open tracking** works with SES, Cloudflare, and custom templates.
+  Signed, per-recipient pixels record unique opens, total opens, and an
+  estimated open rate in `campaigns stats`, `campaigns show`, and API/JSON
+  responses. Tracking is on by default; use `--no-track-opens` when creating
+  or editing a draft, or set `track_opens: false` through the API. Preview,
+  test, and confirmation emails have no tracking pixels. Opens measure image
+  loads and can be affected by mail privacy features, image blocking, and
+  caching; Museletter stores counts and timestamps, without IP addresses or
+  user agents.
+- **Server version and clearer CLI help.** `museletter status` now reports
+  the running server's version, including in JSON output. `museletter help`
+  and `--help` group commands into client and server commands.
+
+### Fixes
+
+- An explicit `--profile` or `-p` now uses that profile's saved URL, API key,
+  and pinned list even when environment credentials are set. Unknown explicit
+  profiles fail instead of silently selecting the environment's server.
+- Campaign delivery reports show a cumulative sent total with delivered,
+  awaiting confirmation, bounced, and complained counts beneath it. Pending,
+  failed, and suppressed recipients appear separately, and small nonzero
+  rates no longer round to zero. API/JSON delivery counts keep their existing
+  meanings.
+
+### Upgrade notes
+
+- The database migrates automatically at startup, adding campaign tracking
+  settings and recipient open counts and timestamps. There are no new required
+  environment variables.
+- Existing drafts enable open tracking on upgrade; campaigns already queued
+  or sent remain untracked. Disable tracking on a draft with
+  `museletter campaigns edit <id> --no-track-opens` before sending if needed.
+- Allow public GET requests to `/open/<token>.gif` under
+  `MUSELETTER_BASE_URL` through your reverse proxy or tunnel, and disable
+  caching for this route. HEAD requests do not record opens.
+
 ## v1.3.0 - 2026-09-08
 
 ### Features
