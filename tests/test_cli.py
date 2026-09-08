@@ -179,7 +179,7 @@ def test_campaigns_stats_human_output(api):
         "status": "sent",
         "recipient_count": 3,
         "pending": 0,
-        "sent": 3,
+        "sent": 0,
         "delivered": 2,
         "bounced": 1,
         "complained": 0,
@@ -582,7 +582,7 @@ def test_inline_email_marks_replaces_cdn():
     assert out.count("data:image/svg+xml,") == 2
 
 
-def test_campaign_stats_funnel(api):
+def test_campaign_stats_delivery_branches(api):
     stats = {
         "id": "cmp_1", "status": "sent", "recipient_count": 1000,
         "started_at": "2026-07-29T22:47:45.000Z", "completed_at": "2026-07-29T22:51:00.000Z",
@@ -598,9 +598,91 @@ def test_campaign_stats_funnel(api):
     assert "1,000 recipients" in out
     assert "█" in out  # a bar was drawn
     assert "delivery" in out and "bounce" in out
+    normalized = " ".join(out.split())
+    assert "sent 995 99.5%" in normalized
+    assert "├─ awaiting 10 1.0%" in normalized
+    assert "└─ complained 5 0.5%" in normalized
     # the --json path returns the raw stats untouched (for agents)
     as_json = runner.invoke(cli_app, ["--json", "campaigns", "stats", "cmp_1"])
-    assert json.loads(as_json.output)["delivered"] == 950
+    assert json.loads(as_json.output) == stats
+
+
+@pytest.mark.parametrize("command", ["show", "stats"])
+def test_campaign_report_preserves_bars_with_cumulative_sent(api, command):
+    campaign = {
+        "id": "cmp_1", "subject": "Issue 1", "status": "sent", "recipient_count": 11039,
+        "created_at": "2026-09-08T06:58:00.000Z",
+    }  # fmt: skip
+    counts = {
+        "sent": 275, "delivered": 9922, "bounced": 841, "complained": 0,
+        "pending": 0, "failed": 1, "suppressed": 0,
+    }  # fmt: skip
+    payload = {**campaign, "stats": counts} if command == "show" else {**campaign, **counts}
+    path = "/v1/campaigns/cmp_1" + ("/stats" if command == "stats" else "")
+    api[("GET", path)] = payload
+    result = runner.invoke(cli_app, ["campaigns", command, "cmp_1"])
+    assert result.exit_code == 0, result.output
+    rows = [line for line in result.output.splitlines() if "█" in line or "░" in line]
+    expected = [
+        "sent 11,038 99.99%",
+        "├─ delivered 9,922 89.9%",
+        "├─ awaiting 275 2.5%",
+        "├─ bounced 841 7.6%",
+        "└─ complained 0 0.0%",
+        "pending 0 0.0%",
+        "failed 1 <0.1%",
+        "suppressed 0 0.0%",
+    ]
+    assert len(rows) == len(expected)
+    bar_columns = set()
+    for line, prefix in zip(rows, expected, strict=True):
+        assert " ".join(line.split()).startswith(prefix + " ")
+        bar = line.split()[-1]
+        assert len(bar) == 22
+        bar_columns.add(line.index(bar))
+    assert len(bar_columns) == 1
+    assert "All bars and percentages are of recipients." in result.output
+    assert "awaiting = sent, awaiting delivery confirmation" in result.output
+    as_json = runner.invoke(cli_app, ["--json", "campaigns", command, "cmp_1"])
+    assert json.loads(as_json.output) == payload
+
+
+@pytest.mark.parametrize("recipient_count", [None, 0])
+def test_campaign_report_falls_back_to_raw_recipient_counts(api, recipient_count):
+    data = {
+        "id": "cmp_1", "status": "sending",
+        "sent": 2, "delivered": 6, "bounced": 1, "complained": 1,
+        "pending": 2, "failed": 1, "suppressed": 1,
+    }  # fmt: skip
+    if recipient_count is not None:
+        data["recipient_count"] = recipient_count
+    api[("GET", "/v1/campaigns/cmp_1/stats")] = data
+    result = runner.invoke(cli_app, ["campaigns", "stats", "cmp_1"])
+    assert result.exit_code == 0, result.output
+    normalized = " ".join(result.output.split())
+    assert "14 recipients" in normalized
+    assert "sent 10 71.4%" in normalized
+    assert "├─ delivered 6 42.9%" in normalized
+
+
+def test_campaign_report_empty_audience(api):
+    api[("GET", "/v1/campaigns/cmp_1/stats")] = {
+        "id": "cmp_1", "status": "draft", "recipient_count": 0,
+    }  # fmt: skip
+    result = runner.invoke(cli_app, ["campaigns", "stats", "cmp_1"])
+    assert result.exit_code == 0, result.output
+    assert "0 recipients" in result.output
+    assert "█" not in result.output
+    assert result.output.count("░" * 22) == 8
+    assert "100.0%" not in result.output
+
+
+@pytest.mark.parametrize(
+    ("count", "total", "expected"),
+    [(1, 100000, "<0.1%"), (99999, 100000, ">99.9%"), (100000, 100000, "100.0%")],
+)
+def test_campaign_percent_does_not_round_away_nonzero_outcomes(count, total, expected):
+    assert cli_mod._campaign_percent(count, total) == expected
 
 
 def test_lists_show_breakdown(api):
@@ -618,7 +700,7 @@ def test_lists_show_breakdown(api):
     assert "https://x/subscribe/default" in out
 
 
-def test_campaigns_show_with_funnel(api):
+def test_campaigns_show_with_delivery_branches(api):
     api[("GET", "/v1/campaigns/cmp_1")] = {
         "id": "cmp_1", "subject": "Issue 1", "status": "sent", "recipient_count": 200,
         "tag": None, "created_at": "2026-07-29T10:00:00.000Z", "body_markdown": "# hi",
@@ -628,6 +710,7 @@ def test_campaigns_show_with_funnel(api):
     result = runner.invoke(cli_app, ["campaigns", "show", "cmp_1"])
     assert result.exit_code == 0, result.output
     assert "Issue 1" in result.output and "delivered" in result.output and "190" in result.output
+    assert "sent 199 99.5%" in " ".join(result.output.split())
 
 
 def test_subs_show(api):

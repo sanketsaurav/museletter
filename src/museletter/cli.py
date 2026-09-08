@@ -128,8 +128,8 @@ _STATUS_COLORS = {
     "draft": "bright_black", "sending": "cyan", "sent": "green",
     "scheduled": "yellow", "canceled": "bright_black", "failed": "red",
 }  # fmt: skip
-_FUNNEL_COLORS = {
-    "delivered": "green", "sent": "cyan", "pending": "bright_black",
+_DELIVERY_COLORS = {
+    "delivered": "green", "sent": "cyan", "awaiting": "cyan", "pending": "bright_black",
     "bounced": "red", "complained": "magenta", "failed": "red", "suppressed": "yellow",
 }  # fmt: skip
 
@@ -175,11 +175,49 @@ def _breakdown(counts: dict, order: list[str], total: int, colors: dict) -> str:
     return "\n".join(lines)
 
 
-_FUNNEL_ORDER = ["delivered", "sent", "pending", "bounced", "complained", "failed", "suppressed"]
+_SENT_STATUSES = ("delivered", "sent", "bounced", "complained")
+_UNSENT_STATUSES = ("pending", "failed", "suppressed")
+_RECIPIENT_STATUSES = _SENT_STATUSES + _UNSENT_STATUSES
+_DELIVERY_NOTE = (
+    "  All bars and percentages are of recipients.\n  awaiting = sent, awaiting delivery confirmation"
+)
+
+
+def _campaign_percent(count: int, total: int) -> str:
+    percent = count / max(total, 1) * 100
+    if 0 < percent < 0.1:
+        return "<0.1%"
+    if 99.9 < percent < 100:
+        return ">99.9%" if round(percent, 2) == 100 else f"{percent:.2f}%"
+    return f"{percent:.1f}%"
+
+
+def _campaign_breakdown(counts: dict, total: int) -> str:
+    rows = [
+        ("", "sent", sum(counts.get(s, 0) for s in _SENT_STATUSES)),
+        ("├─ ", "delivered", counts.get("delivered", 0)),
+        ("├─ ", "awaiting", counts.get("sent", 0)),
+        ("├─ ", "bounced", counts.get("bounced", 0)),
+        ("└─ ", "complained", counts.get("complained", 0)),
+        *(("", s, counts.get(s, 0)) for s in _UNSENT_STATUSES),
+    ]
+    label_w = max(len(prefix + label) for prefix, label, _ in rows)
+    num_w = max(len(f"{count:,}") for _, _, count in rows)
+    lines = []
+    for prefix, label, count in rows:
+        if label == "pending":
+            lines.append("")
+        color = _DELIVERY_COLORS[label]
+        name = typer.style(prefix, fg="bright_black") + typer.style(
+            label.ljust(label_w - len(prefix)), fg=color
+        )
+        bar = typer.style(_bar(count, total), fg=color)
+        lines.append(f"  {name}  {count:>{num_w},}  {_campaign_percent(count, total):>6}  {bar}")
+    return "\n".join(lines)
 
 
 def _render_campaign_stats(data: dict) -> str:
-    total = data.get("recipient_count") or sum(data.get(s, 0) for s in _FUNNEL_ORDER)
+    total = data.get("recipient_count") or sum(data.get(s, 0) for s in _RECIPIENT_STATUSES)
     header = (
         typer.style(data["id"], bold=True)
         + "  status "
@@ -197,17 +235,17 @@ def _render_campaign_stats(data: dict) -> str:
     parts = [header]
     if times:
         parts.append(typer.style("  " + "  ·  ".join(times), dim=True))
-    parts += ["", _breakdown(data, _FUNNEL_ORDER, total, _FUNNEL_COLORS), ""]
-    d = max(total, 1)
+    parts += ["", _campaign_breakdown(data, total), ""]
     parts.append(
         "  "
         + typer.style("delivery ", dim=True)
-        + typer.style(f"{data.get('delivered', 0) / d * 100:.1f}%", fg="green")
+        + typer.style(_campaign_percent(data.get("delivered", 0), total), fg="green")
         + typer.style("   bounce ", dim=True)
-        + typer.style(f"{data.get('bounced', 0) / d * 100:.1f}%", fg="red")
+        + typer.style(_campaign_percent(data.get("bounced", 0), total), fg="red")
         + typer.style("   complaint ", dim=True)
-        + typer.style(f"{data.get('complained', 0) / d * 100:.1f}%", fg="magenta")
+        + typer.style(_campaign_percent(data.get("complained", 0), total), fg="magenta")
     )
+    parts += ["", typer.style(_DELIVERY_NOTE, dim=True)]
     return "\n".join(parts)
 
 
@@ -225,8 +263,8 @@ def _render_campaign_detail(data: dict) -> str:
     parts.append(typer.style("  " + "  ·  ".join(meta), dim=True))
     stats = data.get("stats")
     if stats:
-        total = data.get("recipient_count") or sum(stats.get(s, 0) for s in _FUNNEL_ORDER)
-        parts += ["", _breakdown(stats, _FUNNEL_ORDER, total, _FUNNEL_COLORS)]
+        total = data.get("recipient_count") or sum(stats.get(s, 0) for s in _RECIPIENT_STATUSES)
+        parts += ["", _campaign_breakdown(stats, total), "", typer.style(_DELIVERY_NOTE, dim=True)]
     return "\n".join(parts)
 
 
@@ -1011,7 +1049,7 @@ def campaigns_create(
 
 @campaigns_app.command("show")
 def campaigns_show(campaign_id: str):
-    """Show a campaign with its delivery funnel (once sent)."""
+    """Show a campaign with its delivery report (once sent)."""
     data = _call("GET", f"/v1/campaigns/{campaign_id}")
     _emit(data, _render_campaign_detail(data))
 
@@ -1090,7 +1128,7 @@ def campaigns_send(
 
 @campaigns_app.command("stats")
 def campaigns_stats(campaign_id: str):
-    """Show a campaign's delivery funnel with rates."""
+    """Show a campaign's delivery report with rates."""
     data = _call("GET", f"/v1/campaigns/{campaign_id}/stats")
     _emit(data, _render_campaign_stats(data))
 
