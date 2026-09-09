@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Authenticated website signup at `POST /v1/lists/{ref}/subscribe` accepts an
+  email and optional name, always sends new readers through double opt-in,
+  and works with public signup disabled. The admin import endpoint remains
+  separate and does not send confirmation emails.
+
+### Fixes
+
+- Public and authenticated signup share a confirmation cooldown claimed
+  before sending, so concurrent requests cannot send duplicate emails. A
+  failed send releases its claim for a retry. Synchronous permanent bounces
+  suppress the address just like campaign bounces.
+- Signup no longer sends unusable confirmation emails to opted-out readers
+  or reactivates them in single opt-in mode. Existing opt-outs and
+  suppressions stay closed, including when an old confirmation link is used.
+
+### Upgrade notes
+
+- No schema changes or new required server settings. Deploy the new server
+  before switching a website to the authenticated endpoint, then optionally
+  set `MUSELETTER_PUBLIC_SUBSCRIBE=false`. The website backend must validate
+  submissions and apply its own bot protection and rate limiting.
+
 ## v1.4.0 - 2026-09-08
 
 ### Features

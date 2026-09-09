@@ -33,6 +33,8 @@ running instance.
 - `db.py` - schema + helpers; the whole state is one SQLite file
 - `api/admin.py` - `/v1` bearer-auth CRUD + campaign lifecycle + doctor
 - `api/public.py` - subscribe/confirm/unsubscribe pages + SNS webhook
+- `subscriptions.py` - shared signup, opt-out guards, and confirmation cooldown;
+  authenticated signup always uses double opt-in
 - `sender.py` - background loop draining the campaign_recipients ledger
 - `mailer.py` - provider-neutral layer: `SendError`/`SendResult`, the `Mailer`
   protocol, and `create_mailer` (picks the provider from `Settings`)

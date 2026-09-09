@@ -407,7 +407,7 @@ Set these in the server's environment (`museletter init` writes most of them).
 | `MUSELETTER_SES_CONFIGURATION_SET` | no | ses: configuration set for event feedback |
 | `MUSELETTER_SNS_TOPIC_ARN` | recommended | ses: your SNS topic ARN; the webhook rejects events from any other topic |
 | `MUSELETTER_TRUST_PROXY` | no | `true` when behind a proxy, so rate limiting uses `X-Forwarded-For` not the proxy IP |
-| `MUSELETTER_PUBLIC_SUBSCRIBE` | no | `false` disables the public `/subscribe` endpoint (add subscribers via the admin API instead) |
+| `MUSELETTER_PUBLIC_SUBSCRIBE` | no | `false` disables public signup; backends can still use authenticated `/v1/lists/{ref}/subscribe` |
 | `MUSELETTER_TURNSTILE_SECRET` | no | Cloudflare Turnstile secret; when set, `/subscribe` requires a valid Turnstile token |
 | `MUSELETTER_CONFIRMATION_COOLDOWN` | no | min seconds between confirmation emails to one address, default 3600 |
 | `MUSELETTER_TEMPLATE_DIR` | no | server-side directory overriding the packaged templates (issue templates are better managed with `museletter templates`) |
@@ -434,25 +434,45 @@ selected through `MUSELETTER_URL` has no pinned list.
 ## Connect your website
 
 How you collect subscribers depends on whether your site has a backend, but both
-paths feed the same `default` list (or any slug). Double opt-in is on by default
-(`MUSELETTER_OPT_IN=single` skips the confirmation email), and every email
-carries a one-click RFC 8058 unsubscribe.
+paths feed the same `default` list (or any slug). Authenticated signup always
+requires double opt-in. Public signup defaults to double opt-in;
+`MUSELETTER_OPT_IN=single` skips its confirmation email. Campaign emails carry
+a one-click RFC 8058 unsubscribe.
 
 ### If you have a backend (recommended when you can)
 
-Add subscribers server-side through the authenticated admin API, so your API
-key never touches the browser:
+Request a confirmation email through the authenticated signup API, so your
+API key never touches the browser:
 
 ```bash
-curl -X POST https://news.example.com/v1/lists/default/subscribers \
+curl -X POST https://news.example.com/v1/lists/default/subscribe \
   -H "Authorization: Bearer $MUSELETTER_API_KEY" \
   -H "content-type: application/json" \
-  -d '{"email":"reader@example.com","name":"Reader","status":"unconfirmed"}'
+  -d '{"email":"reader@example.com","name":"Reader"}'
 ```
 
-Use `status:"unconfirmed"` to trigger the double opt-in email, or `"active"` to
-add them directly (only for people who genuinely opted in). Since you are not
-using the public form, you can turn the public endpoint off entirely:
+This returns HTTP 202 with `status: "pending_confirmation"`. New readers are
+stored as `unconfirmed` and become active only after clicking the email link,
+even when `MUSELETTER_OPT_IN=single`. An optional `name` is accepted; a `status`
+override is not. The list reference can be a slug or id.
+
+Active, opted-out, and suppressed addresses receive the same response, with no
+new email or status change. Pending readers share the public form's
+`MUSELETTER_CONFIRMATION_COOLDOWN` (default one hour), including concurrent
+requests. Provider errors return 502 and allow a retry. Existing opt-outs are
+not reopened, so old confirmation links cannot reactivate them.
+
+Validate your site's form and apply bot protection/rate limiting in your
+backend before forwarding the request. This authenticated endpoint does not
+require the public form's Turnstile token or share its per-IP rate limit.
+
+The separate `POST /v1/lists/{ref}/subscribers` endpoint is for admin imports:
+it does **not** send confirmation emails, including with `status: "unconfirmed"`.
+Use `status: "active"` there only for readers whose consent you already have.
+
+Deploy a server exposing the new signup route before switching your website
+(releases through 1.4.0 do not have it). Once your backend uses it, you can turn
+the public endpoint off entirely; confirmation and unsubscribe links stay live:
 
 ```bash
 MUSELETTER_PUBLIC_SUBSCRIBE=false

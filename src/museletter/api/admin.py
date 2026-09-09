@@ -4,11 +4,12 @@ import re
 from string import Template
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import doctor as doctor_mod
 from ..db import BUILTIN_TEMPLATE_ID, SUBSCRIBER_STATUSES, new_id, utcnow
 from ..render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, validate_template
+from ..subscriptions import subscribe_address
 from .common import (
     builtin_template,
     campaign_json,
@@ -52,6 +53,13 @@ class SubscriberIn(BaseModel):
 class SubscriberPatch(BaseModel):
     name: str | None = None
     status: str | None = None
+
+
+class SignupIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(max_length=320)
+    name: str = Field(default="", max_length=200)
 
 
 class TagIn(BaseModel):
@@ -212,6 +220,19 @@ async def delete_list(request: Request, ref: str):
 
 
 # ---------- subscribers ----------
+
+
+@router.post("/lists/{ref}/subscribe", status_code=202)
+async def subscribe_from_backend(request: Request, ref: str, body: SignupIn):
+    """Request double opt-in without exposing membership or overriding opt-outs."""
+    lst = await get_list(request.app.state.db, ref)
+    email = normalize_email(body.email)
+    if not valid_email(email):
+        raise HTTPException(status_code=422, detail="a valid email is required")
+    # The caller authenticates with the admin key and owns its bot verification.
+    # This route remains available when public signup is disabled, and always
+    # requires email confirmation regardless of the public form's opt-in mode.
+    return await subscribe_address(request, lst, email, body.name.strip(), double_opt_in=True)
 
 
 @router.get("/lists/{ref}/subscribers")

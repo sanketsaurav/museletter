@@ -12,21 +12,31 @@ decides the path. If unsure, static-site is the safe default.
 
 ## Path A: they have a backend (more locked down)
 
-Add subscribers server-side via the authenticated admin API, so the API key
-stays on their server and never reaches the browser.
+Request signup server-side via the authenticated confirmation API, so the API
+key stays on their server and never reaches the browser. Check the server's
+`/docs` for this route first: versions through 1.4.0 do not support it.
 
 ```
-POST {base_url}/v1/lists/{list_slug}/subscribers
+POST {base_url}/v1/lists/{list_slug}/subscribe
 Authorization: Bearer {api_key}
 Content-Type: application/json
 
-{"email": "reader@example.com", "name": "Reader", "status": "unconfirmed"}
+{"email": "reader@example.com", "name": "Reader"}
 ```
 
-- `status: "unconfirmed"` sends the double opt-in confirmation email (the
-  correct default). `status: "active"` adds them directly; only use it for
-  people who genuinely opted in (an imported list they consented to).
-- Wire this into wherever their site already handles the form POST.
+- HTTP 202 returns `status: "pending_confirmation"`. New subscribers remain
+  unconfirmed until they click the email link, even with server single opt-in.
+  A status override is rejected. The separate `/subscribers` admin import
+  endpoint never sends confirmation emails, including for unconfirmed imports.
+- Pending signups share the public form's confirmation cooldown. Active,
+  opted-out, and suppressed addresses get the same response without an email
+  or status change. Opt-outs cannot be reopened by replaying old confirm links.
+- Wire this into the site's form handler, with email validation and bot
+  protection/rate limiting before calling Museletter. Authenticated signup
+  does not need the public form's Turnstile token or use its per-IP rate limit.
+- Handle 401 (missing/invalid API key), 404 (unsupported route or missing list),
+  422 (bad input), and 502 (confirmation delivery failed, safe to retry).
+  Never fall back to unauthenticated signup on an auth or version error.
 - Since they are not using the public form, offer to disable the public
   endpoint entirely: set `MUSELETTER_PUBLIC_SUBSCRIBE=false` and restart. Then
   the only way to add subscribers is the authenticated API.
@@ -71,11 +81,20 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
   the server, add the Turnstile widget to the form, and the widget's
   `cf-turnstile-response` token is verified on each submit.
 
-## Verify it works (either path)
+## Verify it works
+
+Use an address the user controls. For Path A, submit through the website's
+backend or call `/v1/lists/{slug}/subscribe` with the Bearer key as above.
+For Path B only:
 
 ```bash
 curl -X POST {base_url}/subscribe/default \
   -H 'content-type: application/json' -d '{"email":"you@example.com"}'
+```
+
+Then check the chosen list:
+
+```bash
 museletter subs list --status unconfirmed    # the address should appear
 # after clicking the confirmation link:
 museletter subs list --status active
