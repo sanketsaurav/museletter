@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Readers can add their name when confirming a double opt-in, so signup forms
+  can stay email-only. If no name is on file, the confirmation page offers
+  optional first and last name fields, stored joined as the subscriber's name
+  for `{{first_name}}` and `{{name}}`. The name saves only on submit (a POST),
+  so link scanners that prefetch the confirmation link never set one, and the
+  link keeps offering the form until a name is saved.
+- The public `/subscribe/{slug}` endpoint and authenticated
+  `POST /v1/lists/{ref}/subscribe` accept optional `first_name` and
+  `last_name`, joined the same way, for sites that ask up front. A non-empty
+  `name` still takes precedence.
+- The website signup snippets in the README and the connect-website skill
+  recipe send every form field, so name inputs or a Turnstile widget added
+  inside the form need no script changes.
+
+### Fixes
+
+- Confirming a subscription no longer races a concurrent unsubscribe: the
+  confirmation only activates readers who are still pending.
+
+### Upgrade notes
+
+- No schema changes. Older servers ignore `first_name` and `last_name` on the
+  public form and reject them with 422 on the authenticated endpoint, so
+  upgrade the server before sending them.
+- If you serve a customized `page.html` (`museletter preview --eject` with
+  `MUSELETTER_TEMPLATE_DIR`), copy the new `.name-form` and `.field` styles
+  and the `--on-accent` button color from the packaged template, or the
+  confirmation page's name form renders unstyled.
+
 ## v1.5.0 - 2026-09-08
 
 ### Features

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .. import doctor as doctor_mod
 from ..db import BUILTIN_TEMPLATE_ID, SUBSCRIBER_STATUSES, new_id, utcnow
 from ..render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, validate_template
-from ..subscriptions import subscribe_address
+from ..subscriptions import signup_name, subscribe_address
 from .common import (
     builtin_template,
     campaign_json,
@@ -60,6 +60,8 @@ class SignupIn(BaseModel):
 
     email: str = Field(max_length=320)
     name: str = Field(default="", max_length=200)
+    first_name: str = Field(default="", max_length=100)
+    last_name: str = Field(default="", max_length=100)
 
 
 class TagIn(BaseModel):
@@ -232,7 +234,8 @@ async def subscribe_from_backend(request: Request, ref: str, body: SignupIn):
     # The caller authenticates with the admin key and owns its bot verification.
     # This route remains available when public signup is disabled, and always
     # requires email confirmation regardless of the public form's opt-in mode.
-    return await subscribe_address(request, lst, email, body.name.strip(), double_opt_in=True)
+    name = signup_name(body.name, body.first_name, body.last_name)
+    return await subscribe_address(request, lst, email, name, double_opt_in=True)
 
 
 @router.get("/lists/{ref}/subscribers")

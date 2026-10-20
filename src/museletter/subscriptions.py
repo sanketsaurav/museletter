@@ -10,6 +10,11 @@ from .render import render_confirmation
 from .tokens import make_token
 
 
+def signup_name(name: str, first_name: str = "", last_name: str = "") -> str:
+    """The name a signup stores: an explicit `name`, else first and last name joined."""
+    return name.strip() or " ".join(part for part in (first_name.strip(), last_name.strip()) if part)
+
+
 async def subscribe_address(request: Request, lst, email: str, name: str, *, double_opt_in: bool) -> dict:
     db = request.app.state.db
     settings = request.app.state.settings

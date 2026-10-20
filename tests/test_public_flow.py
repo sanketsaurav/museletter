@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from conftest import AUTH
 from museletter.tokens import make_token
 
@@ -43,6 +45,35 @@ async def test_subscribe_confirm_unsubscribe_flow(app_client):
     assert resp.status_code == 200
     sub = await _find_subscriber(client, "reader@example.com")
     assert sub["status"] == "unsubscribed"
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"first_name": " Ada ", "last_name": " Lovelace "}, "Ada Lovelace"),
+        ({"first_name": "Ada", "last_name": ""}, "Ada"),
+        ({"last_name": "Lovelace"}, "Lovelace"),
+        ({"name": "Ada King", "first_name": "Ada", "last_name": "Lovelace"}, "Ada King"),
+        ({"first_name": "a" * 150, "last_name": "b" * 150}, "a" * 150 + " " + "b" * 49),
+    ],
+)
+async def test_subscribe_joins_first_and_last_name(app_client, fields, expected):
+    app, client = app_client
+    resp = await client.post("/subscribe/default", json={"email": "ada@example.com", **fields})
+    assert resp.status_code == 200
+    sub = await _find_subscriber(client, "ada@example.com")
+    assert sub["name"] == expected
+
+
+async def test_subscribe_plain_form_post_with_name_fields(app_client):
+    app, client = app_client
+    resp = await client.post(
+        "/subscribe/default", data={"email": "ada@example.com", "first_name": "Ada", "last_name": "Lovelace"}
+    )
+    assert resp.status_code == 200
+    sub = await _find_subscriber(client, "ada@example.com")
+    assert sub["name"] == "Ada Lovelace"
+    assert sub["status"] == "unconfirmed"
 
 
 async def test_subscribe_honeypot_and_suppressed(app_client):
