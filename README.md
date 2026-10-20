@@ -439,6 +439,11 @@ requires double opt-in. Public signup defaults to double opt-in;
 `MUSELETTER_OPT_IN=single` skips its confirmation email. Campaign emails carry
 a one-click RFC 8058 unsubscribe.
 
+You don't need to ask for a name at signup. When a reader confirms without one
+on file, the confirmation page offers optional first and last name fields; the
+name is saved only when they submit it, and campaigns can greet them with
+`{{first_name}}`.
+
 ### If you have a backend (recommended when you can)
 
 Request a confirmation email through the authenticated signup API, so your
@@ -488,8 +493,6 @@ reader on your page and shows the result inline:
 
 ```html
 <form id="newsletter">
-  <input type="text" name="first_name" placeholder="First name" autocomplete="given-name">
-  <input type="text" name="last_name" placeholder="Last name" autocomplete="family-name">
   <input type="email" name="email" placeholder="you@example.com" required>
   <!-- honeypot: hidden from humans; bots fill it and are silently dropped -->
   <input type="text" name="website" tabindex="-1" autocomplete="off"
@@ -515,10 +518,11 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
 </script>
 ```
 
-The name fields are optional: Museletter stores them joined as the reader's
-name, which campaigns can use as `{{first_name}}` and `{{name}}`. Delete those
-two inputs for an email-only form. The script sends every field in the form, so
-anything you add inside it (like a Turnstile widget) needs no script changes.
+With double opt-in, readers add their name on the confirmation page, so the form
+only needs an email. To ask for it up front instead (or with single opt-in,
+which has no confirmation page), add `first_name` and `last_name` text inputs.
+The script sends every field in the form, so anything you add inside it (like a
+Turnstile widget) needs no script changes.
 
 A plain `<form action="..." method="post">` works too, but without JavaScript
 the browser navigates to the endpoint's JSON response, so the reader lands on a

@@ -118,6 +118,19 @@ def _page(
     return HTMLResponse(_PAGE_TEMPLATE.substitute(title=html_mod.escape(heading), content=content))
 
 
+def _name_form(action: str) -> str:
+    """Optional name fields for the confirmation page. They save by POST only, so
+    link scanners that prefetch the confirm link never set a name."""
+    return (
+        f'<form class="name-form" method="post" action="{html_mod.escape(action)}">'
+        '<label class="field">First name<input type="text" name="first_name" '
+        'autocomplete="given-name" maxlength="100" required></label>'
+        '<label class="field">Last name<input type="text" name="last_name" '
+        'autocomplete="family-name" maxlength="100"></label>'
+        '<button class="btn" type="submit">Save name</button></form>'
+    )
+
+
 @router.post("/subscribe/{slug}")
 async def subscribe(request: Request, slug: str):
     db = request.app.state.db
@@ -176,6 +189,21 @@ async def subscribe(request: Request, slug: str):
 
 @router.get("/confirm/{token}")
 async def confirm(request: Request, token: str):
+    return await _confirm(request, token)
+
+
+@router.post("/confirm/{token}")
+async def confirm_with_name(request: Request, token: str):
+    form = await request.form()
+    return await _confirm(
+        request,
+        token,
+        str(form.get("first_name", "")).strip()[:100],
+        str(form.get("last_name", "")).strip()[:100],
+    )
+
+
+async def _confirm(request: Request, token: str, first_name: str = "", last_name: str = "") -> HTMLResponse:
     db = request.app.state.db
     invalid = ("Invalid link", "<p>This confirmation link is not valid.</p>")
     subscriber_id = verify_token(request.app.state.secret, token, "confirm")
@@ -195,27 +223,40 @@ async def confirm(request: Request, token: str):
     # subscriber who has since unsubscribed, bounced, or complained.
     if row["status"] == "unconfirmed":
         await db.execute(
-            "UPDATE subscribers SET status = 'active', confirmed_at = ? WHERE id = ?",
+            "UPDATE subscribers SET status = 'active', confirmed_at = ? WHERE id = ? AND status = 'unconfirmed'",
             (utcnow(), subscriber_id),
         )
         await db.commit()
+        message = f"<p>Welcome to <strong>{escaped}</strong>. Your first issue is on its way.</p>"
+    elif row["status"] == "active":
+        message = f"<p>You are already subscribed to <strong>{escaped}</strong>.</p>"
+    else:
         return _page(
-            "You're subscribed",
-            f"<p>Welcome to <strong>{escaped}</strong>. Your first issue is on its way.</p>",
+            "Subscription closed",
+            f"<p>This address is not subscribed to {escaped}. "
+            f"Sign up again from the website if that is a mistake.</p>",
+            variant="muted",
             list_name=lst,
         )
-    if row["status"] == "active":
+    name = signup_name("", first_name, last_name)[:200]
+    if name:
+        await db.execute(
+            "UPDATE subscribers SET name = ? WHERE id = ? AND status = 'active'", (name, subscriber_id)
+        )
+        await db.commit()
         return _page(
-            "You're subscribed",
-            f"<p>You are already subscribed to <strong>{escaped}</strong>.</p>",
+            f"Thanks, {first_name}" if first_name else "Thanks",
+            f"<p>Your name is saved. You're subscribed to <strong>{escaped}</strong>.</p>",
             list_name=lst,
         )
+    if row["name"]:
+        return _page("You're subscribed", message, list_name=lst)
+    # Shown on repeat visits too: a link scanner may have confirmed before the reader clicked.
     return _page(
-        "Subscription closed",
-        f"<p>This address is not subscribed to {escaped}. "
-        f"Sign up again from the website if that is a mistake.</p>",
-        variant="muted",
+        "You're subscribed",
+        f"{message}<p>Add your name, if you like, so issues can greet you personally.</p>",
         list_name=lst,
+        action=_name_form(f"/confirm/{token}"),
     )
 
 

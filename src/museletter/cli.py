@@ -711,7 +711,7 @@ def preview(
         typer.echo(f"edit them, then run the server (or preview) with MUSELETTER_TEMPLATE_DIR={dest}")
         return
 
-    from .api.public import _page
+    from .api.public import _name_form, _page
     from .config import Settings
     from .render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, render_confirmation
 
@@ -745,7 +745,18 @@ def preview(
             "Page: subscribed",
             page_html(
                 "You're subscribed",
-                f"<p>Welcome to <strong>{ln}</strong>. Your first issue is on its way.</p>",
+                f"<p>Welcome to <strong>{ln}</strong>. Your first issue is on its way.</p>"
+                "<p>Add your name, if you like, so issues can greet you personally.</p>",
+                list_name=ln,
+                action=_name_form("#"),
+            ),
+        ),
+        (
+            "page-name-saved",
+            "Page: name saved",
+            page_html(
+                "Thanks, Ada",
+                f"<p>Your name is saved. You're subscribed to <strong>{ln}</strong>.</p>",
                 list_name=ln,
             ),
         ),

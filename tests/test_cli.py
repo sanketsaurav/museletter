@@ -551,6 +551,7 @@ def test_preview_writes_all_surfaces(tmp_path):
         "email-issue.html",
         "email-confirm.html",
         "page-subscribed.html",
+        "page-name-saved.html",
         "page-invalid.html",
     ):
         assert (tmp_path / name).exists(), name
