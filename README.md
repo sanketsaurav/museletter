@@ -448,13 +448,15 @@ API key never touches the browser:
 curl -X POST https://news.example.com/v1/lists/default/subscribe \
   -H "Authorization: Bearer $MUSELETTER_API_KEY" \
   -H "content-type: application/json" \
-  -d '{"email":"reader@example.com","name":"Reader"}'
+  -d '{"email":"reader@example.com","first_name":"Ada","last_name":"Lovelace"}'
 ```
 
 This returns HTTP 202 with `status: "pending_confirmation"`. New readers are
 stored as `unconfirmed` and become active only after clicking the email link,
-even when `MUSELETTER_OPT_IN=single`. An optional `name` is accepted; a `status`
-override is not. The list reference can be a slug or id.
+even when `MUSELETTER_OPT_IN=single`. Optional `first_name` and `last_name` are
+stored joined as the reader's name; you can send a single `name` instead, and it
+wins when both are present (servers through 1.5.0 accept only `name`). A
+`status` override is rejected. The list reference can be a slug or id.
 
 Active, opted-out, and suppressed addresses receive the same response, with no
 new email or status change. Pending readers share the public form's
@@ -486,6 +488,8 @@ reader on your page and shows the result inline:
 
 ```html
 <form id="newsletter">
+  <input type="text" name="first_name" placeholder="First name" autocomplete="given-name">
+  <input type="text" name="last_name" placeholder="Last name" autocomplete="family-name">
   <input type="email" name="email" placeholder="you@example.com" required>
   <!-- honeypot: hidden from humans; bots fill it and are silently dropped -->
   <input type="text" name="website" tabindex="-1" autocomplete="off"
@@ -501,7 +505,7 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
   const res = await fetch('https://news.example.com/subscribe/default', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: form.email.value, website: form.website.value }),
+    body: JSON.stringify(Object.fromEntries(new FormData(form))),
   });
   const data = await res.json();
   document.getElementById('newsletter-msg').textContent =
@@ -510,6 +514,11 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
 });
 </script>
 ```
+
+The name fields are optional: Museletter stores them joined as the reader's
+name, which campaigns can use as `{{first_name}}` and `{{name}}`. Delete those
+two inputs for an email-only form. The script sends every field in the form, so
+anything you add inside it (like a Turnstile widget) needs no script changes.
 
 A plain `<form action="..." method="post">` works too, but without JavaScript
 the browser navigates to the endpoint's JSON response, so the reader lands on a

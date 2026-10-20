@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Signup forms can collect a reader's first and last name. The public
+  `/subscribe/{slug}` endpoint and authenticated `POST /v1/lists/{ref}/subscribe`
+  accept optional `first_name` and `last_name`, stored joined as the
+  subscriber's name. A non-empty `name` still takes precedence. The website
+  snippets in the README and the connect-website skill recipe include both
+  fields and send every form field, so a Turnstile widget inside the form
+  needs no script changes.
+
+### Upgrade notes
+
+- No schema changes. Upgrade the server before adding the name fields to a
+  website: older servers ignore them on the public form and reject them with
+  422 on the authenticated endpoint.
+
 ## v1.5.0 - 2026-09-08
 
 ### Features

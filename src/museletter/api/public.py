@@ -10,7 +10,7 @@ from ..db import utcnow
 from ..events import apply_events
 from ..render import load_template
 from ..sns import is_amazon_sns_url, parse_ses_events
-from ..subscriptions import subscribe_address
+from ..subscriptions import signup_name, subscribe_address
 from ..tokens import verify_open_token, verify_token
 from .common import normalize_email, valid_email
 
@@ -141,7 +141,9 @@ async def subscribe(request: Request, slug: str):
         data = dict(form)
 
     email = normalize_email(str(data.get("email", "")))
-    name = str(data.get("name", "")).strip()[:200]
+    name = signup_name(
+        str(data.get("name", "")), str(data.get("first_name", "")), str(data.get("last_name", ""))
+    )[:200]
     honeypot = str(data.get("website", "")).strip()
 
     async with db.execute("SELECT * FROM lists WHERE slug = ?", (slug,)) as cur:

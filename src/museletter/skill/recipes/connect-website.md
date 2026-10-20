@@ -21,9 +21,13 @@ POST {base_url}/v1/lists/{list_slug}/subscribe
 Authorization: Bearer {api_key}
 Content-Type: application/json
 
-{"email": "reader@example.com", "name": "Reader"}
+{"email": "reader@example.com", "first_name": "Ada", "last_name": "Lovelace"}
 ```
 
+- `first_name` and `last_name` are optional and stored joined as the
+  subscriber's name. A single `name` also works and wins if both are sent.
+  Servers through 1.5.0 reject the separate fields with 422; join them into
+  `name` in the backend there.
 - HTTP 202 returns `status: "pending_confirmation"`. New subscribers remain
   unconfirmed until they click the email link, even with server single opt-in.
   A status override is rejected. The separate `/subscribers` admin import
@@ -49,7 +53,9 @@ and list slug; `default` is the built-in list):
 
 ```html
 <form id="newsletter">
-  <input type="email" name="email" required>
+  <input type="text" name="first_name" placeholder="First name" autocomplete="given-name">
+  <input type="text" name="last_name" placeholder="Last name" autocomplete="family-name">
+  <input type="email" name="email" placeholder="you@example.com" required>
   <input type="text" name="website" tabindex="-1" autocomplete="off"
          style="position:absolute;left:-9999px" aria-hidden="true">
   <button type="submit">Subscribe</button>
@@ -61,7 +67,7 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
   const f = e.target;
   const res = await fetch('{base_url}/subscribe/default', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: f.email.value, website: f.website.value }),
+    body: JSON.stringify(Object.fromEntries(new FormData(f))),
   });
   const data = await res.json();
   document.getElementById('newsletter-msg').textContent =
@@ -71,6 +77,10 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
 </script>
 ```
 
+- First and last name are optional; drop those inputs if the user wants an
+  email-only form. Museletter stores them joined as the subscriber's name, so
+  campaigns can greet readers with `{{first_name}}`. Servers through 1.5.0
+  ignore them.
 - The hidden `website` field is a honeypot; leave it empty. Real users never
   see it; bots fill it and are silently dropped.
 - On success the response is `{"status": ..., "message": ...}` (HTTP 200);
@@ -78,8 +88,9 @@ document.getElementById('newsletter').addEventListener('submit', async (e) => {
 - The endpoint is already hardened (honeypot, per-IP rate limit, per-address
   confirmation cooldown, uniform response). If their form gets abused or is a
   spam target, add Cloudflare Turnstile: set `MUSELETTER_TURNSTILE_SECRET` on
-  the server, add the Turnstile widget to the form, and the widget's
-  `cf-turnstile-response` token is verified on each submit.
+  the server and place the Turnstile widget inside the form. The script sends
+  every form field, so the widget's `cf-turnstile-response` token is verified
+  on each submit without script changes.
 
 ## Verify it works
 

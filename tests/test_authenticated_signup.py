@@ -35,6 +35,8 @@ async def test_requires_authentication_without_side_effects(app_client, headers)
         {"email": "a" * 321},
         {"email": "a@b.co", "status": "active"},
         {"email": "a@b.co", "name": "a" * 201},
+        {"email": "a@b.co", "first_name": "a" * 101},
+        {"email": "a@b.co", "last_name": "a" * 101},
     ],
 )
 async def test_rejects_invalid_input(app_client, body):
@@ -72,6 +74,22 @@ async def test_signup_requires_confirmation_even_with_public_signup_disabled_and
     [subscriber] = await subscribers(client)
     assert subscriber["status"] == "active"
     assert subscriber["confirmed_at"] is not None
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"first_name": " Ada ", "last_name": " Lovelace "}, "Ada Lovelace"),
+        ({"name": "Ada King", "first_name": "Ada", "last_name": "Lovelace"}, "Ada King"),
+    ],
+)
+async def test_signup_joins_first_and_last_name(app_client, fields, expected):
+    app, client = app_client
+    response = await client.post(SIGNUP, json={"email": "reader@example.com", **fields}, headers=AUTH)
+    assert response.status_code == 202
+    [subscriber] = await subscribers(client)
+    assert subscriber["name"] == expected
+    assert len(app.state.mailer.sent) == 1
 
 
 async def test_cooldown_is_shared_with_public_signup_and_allows_later_retry(app_client):
