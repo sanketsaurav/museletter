@@ -62,6 +62,8 @@ running instance.
   (unless `skip_test`), and supports `dry_run`; a campaign sends at most once.
   Editing a draft clears `test_sent_at` on purpose, and so does changing the
   HTML of a template (or a list's default template) a draft renders through.
+  A test send the provider bounces or drops in its send response fails with
+  422 and never sets `test_sent_at`.
 - **Templates**: custom campaign templates live in the DB (`templates` table),
   validated on write and again as a send preflight (`$content` and `$footer`
   required - `$footer` carries the unsubscribe link); the built-in `default`
@@ -76,8 +78,9 @@ running instance.
   suppressed/failed are terminal. Events apply at-least-once from every
   source, so `events.apply_events` transitions must stay state-guarded - any
   sender change must preserve at-least-once + state-dedupe semantics.
-  Cloudflare's REST send returns no message id, so its events correlate by
-  recipient address, restricted to rows with a NULL `ses_message_id`.
+  Cloudflare events correlate by message id like SES events, with a fallback
+  on recipient address restricted to rows with a NULL `ses_message_id`; a row
+  the provider dropped as suppressed stores no id, so no event can move it.
 - **Keep the core simple and portable**: SQLite-dialect SQL only; the DB is
   the queue (no Redis/Celery); providers speak plain HTTPS from this one
   process (SigV4 for SES, bearer token + queue polling for Cloudflare - no

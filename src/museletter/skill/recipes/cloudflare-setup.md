@@ -47,6 +47,8 @@ dashboard-side; substitute the user's domain and server URL throughout.
    the token lacks Queues permissions or the queue id is wrong.
 
 7. **Send a test** (`campaigns test --to <the user's address>`) and confirm it
-   arrives out of spam. Cloudflare reports known-bad addresses synchronously,
-   so a bounced test shows up immediately in `campaigns stats` and
-   `suppressions list`.
+   arrives out of spam. If Cloudflare rejects the address in the send
+   response, the test fails with a 422 and does not count: a permanent bounce
+   also adds the address to `suppressions list`, and an address on
+   Cloudflare's own suppression list has to be removed in the Cloudflare
+   dashboard first. Retry with another address or after fixing that one.

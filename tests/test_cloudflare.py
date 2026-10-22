@@ -93,6 +93,17 @@ async def test_send_synchronous_outcomes(monkeypatch):
     assert result.outcome == "bounced"
     assert result.detail
 
+    client, _ = make_client(monkeypatch, lambda r: send_response(suppressed_recipients=["A@x.com"]))
+    result = await client.send_email("a@x.com", "s", "h", "t", from_email="n@x.com")
+    assert result.outcome == "suppressed", "dropped unsent by Cloudflare's own suppression list"
+    assert "suppression list" in result.detail
+
+
+async def test_send_returns_message_id(monkeypatch):
+    client, _ = make_client(monkeypatch, lambda r: send_response(queued=["a@x.com"], message_id="cf-msg-1"))
+    result = await client.send_email("a@x.com", "s", "h", "t", from_email="n@x.com")
+    assert (result.message_id, result.outcome) == ("cf-msg-1", "sent")
+
 
 async def test_error_mapping_and_throttling(monkeypatch):
     client, _ = make_client(

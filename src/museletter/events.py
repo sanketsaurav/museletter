@@ -36,8 +36,8 @@ async def apply_events(db, events: list[dict], *, match_by_email: bool = False) 
     """Record events ({type, email, message_id, permanent, detail} dicts) and
     move ledger rows. Rows are matched by provider message id when the event
     carries one; match_by_email adds a fallback on the recipient address for
-    rows that never got a message id (Cloudflare's REST send response returns
-    none). The fallback only ever touches id-less in-flight rows, so it can
+    rows that never got a message id (a Cloudflare send that came back without
+    one). The fallback only ever touches id-less in-flight rows, so it can
     misattribute at most between two overlapping sends to the same address."""
     now = utcnow()
     for event in events:
