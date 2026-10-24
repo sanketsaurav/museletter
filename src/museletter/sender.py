@@ -171,9 +171,8 @@ class SenderLoop:
             # Guard on status = 'pending': if an unsubscribe flipped this row to
             # 'suppressed' during the provider call, don't overwrite it.
             if result.outcome == "bounced":
-                # The provider refused the address as a known hard bounce (its
-                # own suppression list) in the send response itself. Terminal:
-                # same treatment as an async permanent bounce event.
+                # The provider reported a permanent bounce in the send response
+                # itself. Terminal: same treatment as an async permanent bounce event.
                 detail = result.detail or "permanent bounce in the send response"
                 await self._mark(
                     recipient, "bounced", message_id=result.message_id, error=detail, only_pending=True
@@ -181,6 +180,12 @@ class SenderLoop:
                 await record_event(db, "bounce", recipient["email"], result.message_id, detail)
                 await suppress(db, recipient["email"], "bounce", detail)
                 await db.commit()
+            elif result.outcome == "suppressed":
+                # Dropped unsent by the provider's own suppression list. Terminal,
+                # with no local suppression (only hard bounces and complaints add
+                # one) and no message id, so no later event can move the row.
+                detail = result.detail or "dropped by the provider's suppression list"
+                await self._mark(recipient, "suppressed", error=detail, only_pending=True)
             elif result.outcome == "delivered":
                 # Some providers confirm delivery synchronously; skip the 'sent' hop.
                 await self._mark(recipient, "delivered", message_id=result.message_id, only_pending=True)

@@ -3,9 +3,10 @@ events from a Cloudflare Queue.
 
 Sending is a bearer-token JSON POST (no request signing). The REST send
 response classifies the recipient synchronously (delivered / permanent_bounces
-/ queued) but carries no message id, so ledger correlation for async events
-falls back to the recipient address; museletter sends exactly one recipient
-per request, which keeps that fallback narrow.
+/ suppressed_recipients / queued) and carries the message id that queue events
+repeat, so the ledger correlates by id; rows stored without one fall back to
+the recipient address. Museletter sends exactly one recipient per request,
+which keeps that fallback narrow.
 
 Events: a Queues event subscription on the sending domain publishes
 cf.email.sending.message.* events; EventPoller drains the queue with the
@@ -83,9 +84,9 @@ class CloudflareEmail:
         headers: dict[str, str] | None = None,
         reply_to: str = "",
     ) -> SendResult:
-        """Send one email. Cloudflare returns no message id over REST, so
-        message_id is normally empty and the outcome carries the synchronous
-        verdict instead."""
+        """Send one email to one recipient. The outcome carries the verdict
+        from the response's recipient lists; a recipient Cloudflare dropped as
+        suppressed was never sent."""
         sender = {"address": from_email, "name": from_name} if from_name else from_email
         body: dict = {"from": sender, "to": to, "subject": subject, "html": html, "text": text}
         if reply_to:
@@ -102,6 +103,8 @@ class CloudflareEmail:
 
         if listed("permanent_bounces"):
             return SendResult(message_id, "bounced", "permanent bounce reported in the send response")
+        if listed("suppressed_recipients"):
+            return SendResult(message_id, "suppressed", "recipient is on the Cloudflare suppression list")
         if listed("delivered"):
             return SendResult(message_id, "delivered")
         return SendResult(message_id)

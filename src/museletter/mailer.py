@@ -3,8 +3,8 @@
 Every provider client exposes the same send_email coroutine and raises
 SendError subclasses; the app talks to `app.state.mailer` and never to a
 concrete client. SendResult carries the synchronous verdict: SES only ever
-knows "sent", while Cloudflare can report delivery or a permanent bounce in
-the send response itself.
+knows "sent", while Cloudflare can report delivery, a permanent bounce, or a
+recipient it dropped as suppressed in the send response itself.
 """
 
 from dataclasses import dataclass
@@ -33,11 +33,13 @@ class SendError(Exception):
 @dataclass
 class SendResult:
     """What one send call established. 'sent' means accepted and in flight;
-    'delivered' and 'bounced' are synchronous verdicts a provider may return.
-    message_id is empty when the provider does not return one."""
+    'delivered' and 'bounced' are synchronous verdicts a provider may return,
+    and 'suppressed' means the provider dropped the message unsent because the
+    recipient is on its own suppression list. message_id is empty when the
+    provider does not return one."""
 
     message_id: str = ""
-    outcome: str = "sent"  # 'sent' | 'delivered' | 'bounced'
+    outcome: str = "sent"  # 'sent' | 'delivered' | 'bounced' | 'suppressed'
     detail: str = ""
 
 

@@ -271,10 +271,14 @@ Set `MUSELETTER_EMAIL_PROVIDER=cloudflare` and configure once:
 4. **Run `museletter doctor`.** It verifies the token, the Email Sending API,
    and the events queue.
 
-One provider quirk to know: the Cloudflare REST send API returns no
-per-message id, so Museletter correlates delivery events by recipient
-address. Each send goes to exactly one recipient, which keeps that
-correlation narrow.
+Cloudflare can settle a send in its response. An address it reports as a
+permanent bounce is suppressed right away; one already on Cloudflare's own
+suppression list is dropped unsent and counted as `suppressed` in the
+campaign, without a Museletter suppression (remove the Cloudflare entry if it
+was a mistake). A test send to either kind of address fails rather than
+counting as your test. Delivery events match campaign rows by the message id
+Cloudflare returns, falling back to the recipient address for a send that came
+back without one.
 
 ## Deployment
 
@@ -553,6 +557,7 @@ Sending is guarded so an automated caller cannot blast the wrong thing:
 
 - `--dry-run` reports the audience size and a sample without sending.
 - A **test send** is required before the real send (or pass `--skip-test`).
+  One the provider bounces or drops in its send response does not count.
 - The real send needs explicit confirmation (`--yes` for automation).
 - The send is idempotent: re-running `campaigns send` for a campaign that is
   already sending does nothing.

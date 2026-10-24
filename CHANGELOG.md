@@ -22,6 +22,17 @@
 
 - Confirming a subscription no longer races a concurrent unsubscribe: the
   confirmation only activates readers who are still pending.
+- Test sends (`campaigns test`, `templates test`) no longer report success
+  when the provider bounces the address in its send response, which
+  Cloudflare can do. They fail with 422 instead, the address is suppressed as
+  it would be in a campaign, and the campaign still needs a test send that
+  went through.
+- Cloudflare recipients that the send response lists in
+  `suppressed_recipients` (already on Cloudflare's own suppression list) are
+  marked `suppressed` in the campaign instead of `sent`, and a test send to
+  one fails with 422. Museletter does not add its own suppression for them.
+- The Cloudflare docs no longer claim the REST send API returns no message
+  id: it returns one, and delivery events correlate by it.
 
 ### Upgrade notes
 
@@ -32,6 +43,8 @@
   `MUSELETTER_TEMPLATE_DIR`), copy the new `.name-form` and `.field` styles
   and the `--on-accent` button color from the packaged template, or the
   confirmation page's name form renders unstyled.
+- Scripts that test-send to an address the provider bounces or drops now get
+  a 422 (the CLI exits 1) instead of a 200.
 
 ## v1.5.0 - 2026-09-08
 

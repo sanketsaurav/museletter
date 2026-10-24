@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import doctor as doctor_mod
 from ..db import BUILTIN_TEMPLATE_ID, SUBSCRIBER_STATUSES, new_id, utcnow
+from ..events import record_event, suppress
+from ..mailer import SendResult
 from ..render import SAMPLE_ISSUE_MARKDOWN, SAMPLE_ISSUE_SUBJECT, build_email, validate_template
 from ..subscriptions import signup_name, subscribe_address
 from .common import (
@@ -672,6 +674,25 @@ async def delete_template(request: Request, ref: str):
     return Response(status_code=204)
 
 
+async def _check_test_verdict(db, to: str, result: SendResult) -> None:
+    """Refuse a test send the provider bounced or dropped in its send response,
+    so it never passes for one that reached an inbox. A bounced address is
+    suppressed exactly as a campaign send would suppress it."""
+    if result.outcome == "bounced":
+        detail = result.detail or "permanent bounce in the send response"
+        await record_event(db, "bounce", to, result.message_id, detail)
+        await suppress(db, to, "bounce", detail)
+        await db.commit()
+        raise HTTPException(
+            status_code=422, detail=f"test send to {to} bounced ({detail}); the address is now suppressed"
+        )
+    if result.outcome == "suppressed":
+        raise HTTPException(
+            status_code=422,
+            detail=f"test send to {to} was not sent ({result.detail or 'dropped by the provider'})",
+        )
+
+
 @router.post("/templates/{ref}/test")
 async def test_send_template(request: Request, ref: str, body: TestSendIn):
     """Send a sample issue rendered through the template, to judge it in a real inbox."""
@@ -706,6 +727,7 @@ async def test_send_template(request: Request, ref: str, body: TestSendIn):
         )
     except Exception as exc:  # surface provider failures as a client-visible error
         raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc
+    await _check_test_verdict(db, to, result)
     return {"sent_to": to, "template": t["name"], "ses_message_id": result.message_id}
 
 
@@ -899,6 +921,7 @@ async def test_send_campaign(request: Request, campaign_id: str, body: TestSendI
         )
     except Exception as exc:  # surface provider failures as a client-visible error
         raise HTTPException(status_code=502, detail=f"test send failed: {exc}") from exc
+    await _check_test_verdict(db, to, result)
     await db.execute("UPDATE campaigns SET test_sent_at = ? WHERE id = ?", (utcnow(), campaign_id))
     await db.commit()
     return {"sent_to": to, "ses_message_id": result.message_id}
